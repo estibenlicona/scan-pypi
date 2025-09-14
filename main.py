@@ -1,7 +1,4 @@
 from package_utils import enrich_packages_with_pypi
-# Para reglas y buenas prácticas, consulta INSTRUCTIONS.md en la raíz del proyecto.
-# main.py
-# Punto de entrada del proyecto
 import subprocess
 import sys
 from utils import create_temp_venv, copy_scan_folder_to_temp, install_dependencies
@@ -9,7 +6,7 @@ from snyk_analyzer import run_snyk_test
 from report_utils import generate_consolidated_report
 from business_rules import filter_maintained_packages
 from dependency_utils import extract_dependencies_tree
-
+from config import SNYK_ORG
 
 def run_snyk_analysis():
     """
@@ -26,7 +23,7 @@ def run_snyk_analysis():
         install_dependencies(venv_python, scan_dir)
 
         # Ejecutar análisis de Snyk y obtener ambos objetos JSON
-        dep_obj, vuln_obj = run_snyk_test(venv_python, scan_dir)
+        dep_obj, vuln_obj = run_snyk_test(venv_python, scan_dir, snyk_org=SNYK_ORG)
         dep_map = extract_dependencies_tree(dep_obj)
 
         # Enriquecer paquetes con info PyPI y dependencias

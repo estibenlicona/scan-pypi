@@ -5,7 +5,7 @@ import subprocess
 import json
 from config import SNYK_PATH
 
-def run_snyk_test(venv_python, scan_dir):
+def run_snyk_test(venv_python, scan_dir, snyk_org=None):
     """
     Ejecuta el análisis de Snyk en formato JSON.
     
@@ -17,8 +17,15 @@ def run_snyk_test(venv_python, scan_dir):
         subprocess.CompletedProcess: Resultado del comando.
     """
     print("Ejecutando análisis de Snyk...")
-    result = subprocess.run([SNYK_PATH, 'test', '--json', '--org=estibenlicona', '--print-deps', f'--command={venv_python}'], 
-                            capture_output=True, text=True, cwd=scan_dir)
+    import inspect
+    # Permitir parámetro opcional snyk_org
+    frame = inspect.currentframe()
+    args, _, _, values = inspect.getargvalues(frame)
+    snyk_org = values.get('snyk_org', None)
+    org_arg = f"--org={snyk_org}" if snyk_org else ""
+    cmd = [SNYK_PATH, 'test', '--json', org_arg, '--print-deps', f'--command={venv_python}']
+    cmd = [c for c in cmd if c]  # Elimina argumentos vacíos
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=scan_dir)
         # Separar y retornar ambos objetos JSON
     content = result.stdout
     objects = []
