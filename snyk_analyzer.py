@@ -3,6 +3,7 @@
 
 import subprocess
 import json
+import inspect
 from config import SNYK_PATH
 
 def run_snyk_test(venv_python, scan_dir, snyk_org=None):
@@ -17,7 +18,6 @@ def run_snyk_test(venv_python, scan_dir, snyk_org=None):
         subprocess.CompletedProcess: Resultado del comando.
     """
     print("Ejecutando análisis de Snyk...")
-    import inspect
     # Permitir parámetro opcional snyk_org
     frame = inspect.currentframe()
     args, _, _, values = inspect.getargvalues(frame)
