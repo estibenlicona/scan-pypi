@@ -1,3 +1,32 @@
+## Ejemplo de ubicación de librerías a escanear
+
+Supón que tu archivo `requirements.txt` contiene las librerías que deseas analizar. Debes colocarlo dentro de la carpeta indicada por la variable `SCAN_FOLDER` (por defecto `scan_input`).
+
+Estructura recomendada:
+
+```
+scan_input/
+	requirements.txt
+```
+
+Puedes editar el archivo `requirements.txt` para agregar, quitar o modificar los paquetes a escanear.
+# Requisitos previos
+
+Para que el escaneo funcione correctamente debes:
+
+1. Tener una organización activa en Snyk (https://snyk.io/org/).
+2. Instalar el Snyk CLI: https://docs.snyk.io/snyk-cli/install-the-snyk-cli
+3. Autenticarte en Snyk CLI ejecutando `snyk auth` y seguir el proceso en el navegador.
+4. Tener configurada la variable SNYK_ORG en el archivo `.env` con el nombre de tu organización.
+5. Colocar el archivo `requirements.txt` con las librerías que deseas escanear dentro de la carpeta indicada por la variable `SCAN_FOLDER` (por defecto `scan_input`).
+6. Instalar las dependencias del proyecto: `pip install -r requirements.txt`
+7. Activar el entorno virtual: `.venv\Scripts\activate`
+8. Ejecutar el análisis: `python main.py`
+
+El reporte se generará en `consolidated_report.json` y no se subirá al repositorio (está en `.gitignore`).
+
+**Nota:** Si el CLI de Snyk no está instalado, no has autenticado, o la organización no existe, el análisis fallará.
+
 
 # PyPI Dependency & License Scanner
 
@@ -44,11 +73,12 @@ Proyecto Python para análisis automatizado de dependencias, escaneo de vulnerab
 		- `license_rejected` (true si la licencia es rechazada por Snyk)
 		- `dependencies`: subdependencias anidadas
 
-## Uso
-1. Instala dependencias: `pip install -r requirements.txt`
-2. Activa el entorno virtual: `.venv\Scripts\activate`
-3. Ejecuta el análisis: `python main.py`
-4. El reporte se genera en `consolidated_report.json`
+## Uso rápido
+1. Coloca el archivo `requirements.txt` con las librerías a escanear en la carpeta indicada por `SCAN_FOLDER`.
+2. Instala dependencias: `pip install -r requirements.txt`
+3. Activa el entorno virtual: `.venv\Scripts\activate`
+4. Ejecuta el análisis: `python main.py`
+5. El reporte se genera en `consolidated_report.json`.
 
 ## Ejemplo de extensión
 - Para agregar una nueva regla de negocio, extiende `business_rules.py` y actualiza el filtrado en `main.py`.
