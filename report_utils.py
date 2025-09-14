@@ -2,6 +2,20 @@ import json
 
 
 def generate_consolidated_report(vulnerabilities, all_packages, maintained_packages, output_file="consolidated_report.json"):
+    # Aplana las vulnerabilidades para mostrar solo los campos clave
+    def flatten_vulnerabilities(vuln_list):
+        flat = []
+        for v in vuln_list:
+            flat.append({
+                "id": v.get("id") or v.get("id", "N/A"),
+                "title": v.get("title", "N/A"),
+                "severity": v.get("severity", "N/A"),
+                "package": v.get("moduleName") or v.get("package"),
+                "version": v.get("version", "N/A"),
+                "cvss": v.get("cvss", v.get("CVSSv3", "N/A")),
+                "fixed_in": v.get("fixed_in", v.get("fixedIn", "N/A"))
+            })
+        return flat
     # Helper: get license info for a package
     def get_license_info(pkg_name, pkg_version):
         licenses = []
@@ -71,7 +85,7 @@ def generate_consolidated_report(vulnerabilities, all_packages, maintained_packa
     packages_tree = [build_tree(key) for key in root_keys if build_tree(key)]
 
     final_report = {
-        "vulnerabilities": vulnerabilities,
+        "vulnerabilities": flatten_vulnerabilities(vulnerabilities),
         "packages": packages_tree
     }
     with open(output_file, "w", encoding="utf-8") as f:
