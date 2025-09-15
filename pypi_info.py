@@ -1,3 +1,48 @@
+import re
+import requests
+
+def extract_github_url_from_description(description):
+    """
+    Busca la URL principal de GitHub en la descripción del paquete.
+    Args:
+        description (str): Texto de la descripción.
+    Returns:
+        str: URL principal del repositorio GitHub si se encuentra, None si no.
+    """
+    if not description:
+        return None
+    github_urls = re.findall(r'https://github\.com/[\w\-]+/[\w\-]+', description)
+    if github_urls:
+        # Elige la más corta (usualmente la principal)
+        return min(github_urls, key=len)
+    return None
+
+def get_github_license(repo_url):
+    """
+    Intenta obtener la licencia de un repositorio GitHub usando la API pública.
+    Args:
+        repo_url (str): URL del repositorio GitHub.
+    Returns:
+        str: Nombre de la licencia si se encuentra, None si no.
+    """
+    try:
+        if "github.com" not in repo_url:
+            return None
+        parts = repo_url.rstrip("/").split("/")
+        owner = parts[-2]
+        repo = parts[-1]
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/license"
+        resp = requests.get(api_url, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            license_info = data.get("license")
+            if license_info and "spdx_id" in license_info:
+                return license_info["spdx_id"]
+            elif license_info and "name" in license_info:
+                return license_info["name"]
+        return None
+    except Exception:
+        return None
 import requests
 
 def get_pypi_package_info(package, version):
@@ -19,10 +64,10 @@ def get_pypi_package_info(package, version):
             license = None
             # Obtener la licencia desde el campo original
             info = data.get("info", {})
-            license = info.get("license")
+            license = info.get("license") or info.get("license_expression")
             classifiers = info.get("classifiers", [])
             # Si es Dual License, tomar todas las licencias de los classifiers
-            if license and "Dual License" in license:
+            if license == None or len(license) > 40:
                 found_licenses = []
                 for c in classifiers:
                     if c.startswith("License ::"):
@@ -31,14 +76,24 @@ def get_pypi_package_info(package, version):
                             found_licenses.append(parts[-1].strip())
                 if found_licenses:
                     license = ", ".join(found_licenses)
-            # Si el valor es texto largo (>40 caracteres), buscar en classifiers
-            elif license and len(license) > 40:
-                for c in classifiers:
-                    if c.startswith("License ::"):
-                        parts = c.split("::")
-                        if len(parts) > 2:
-                            license = parts[-1].strip()
-                            break
+            # Si no hay licencia, intenta obtenerla de GitHub
+            if not license or license.strip() == "":
+                repo_url = None
+                project_urls = info.get("project_urls", {})
+                if isinstance(project_urls, dict):
+                    homepage_url = project_urls.get("Homepage") or project_urls.get("Source")
+                    if homepage_url and "github.com" in homepage_url:
+                        repo_url = homepage_url
+                if not repo_url:
+                    repo_url = info.get("project_url") or info.get("home_page") or info.get("Homepage")
+                # Si aún no se encontró, buscar en la descripción
+                if not repo_url or "github.com" not in str(repo_url):
+                    description = info.get("description", "")
+                    repo_url_desc = extract_github_url_from_description(description)
+                    if repo_url_desc:
+                        repo_url = repo_url_desc
+                if repo_url and "github.com" in repo_url:
+                    license = get_github_license(repo_url)
             # Try releases first (for root endpoint)
             releases = data.get("releases", {})
             files = releases.get(version)
