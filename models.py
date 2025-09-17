@@ -11,7 +11,7 @@ from datetime import datetime
 
 class PackageInfo(BaseModel):
     """Modelo para información de un paquete de PyPI."""
-    model_config = ConfigDict(validate_assignment=True, extra='forbid')
+    model_config = ConfigDict(validate_assignment=True, extra='allow')
     
     package: str = Field(..., description="Nombre del paquete")
     version: str = Field(..., description="Versión del paquete")

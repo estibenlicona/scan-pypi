@@ -6,11 +6,13 @@ import json
 import os
 from typing import Tuple, Dict, Any, Optional
 from config import SNYK_PATH
+from cache_manager import get_cache, is_cache_enabled
 
 
 def run_snyk_test_on_requirements(scan_dir: str, snyk_org: Optional[str] = None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Ejecuta análisis de Snyk sobre requirements.txt sin instalar dependencias.
+    Incluye caché inteligente para evitar reanálisis de los mismos requirements.
     
     Args:
         scan_dir (str): Directorio que contiene requirements.txt expandido.
@@ -27,6 +29,17 @@ def run_snyk_test_on_requirements(scan_dir: str, snyk_org: Optional[str] = None)
     if not os.path.exists(requirements_path):
         raise FileNotFoundError(f"requirements.txt no encontrado en {scan_dir}")
     
+    # Leer contenido del requirements.txt para caché
+    with open(requirements_path, 'r', encoding='utf-8') as f:
+        requirements_content = f.read()
+    
+    # Intentar obtener resultado desde caché
+    if is_cache_enabled():
+        cache = get_cache()
+        cached_result = cache.get_snyk_cache(requirements_content)
+        if cached_result:
+            return cached_result
+    
     print("Ejecutando análisis de Snyk sobre requirements.txt expandido...")
     
     # Construir comando Snyk
@@ -36,7 +49,14 @@ def run_snyk_test_on_requirements(scan_dir: str, snyk_org: Optional[str] = None)
     
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=scan_dir)
-        return _parse_snyk_json_output(result.stdout)
+        dependencies_obj, vulnerabilities_obj = _parse_snyk_json_output(result.stdout)
+        
+        # Guardar en caché si está habilitado
+        if is_cache_enabled():
+            cache = get_cache()
+            cache.set_snyk_cache(requirements_content, dependencies_obj, vulnerabilities_obj)
+            
+        return dependencies_obj, vulnerabilities_obj
         
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Error ejecutando Snyk CLI: {e.stderr}")

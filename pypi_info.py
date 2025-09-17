@@ -9,6 +9,7 @@ import re
 import requests
 from typing import Dict, List, Optional, Any, Set, cast
 from models import PackageInfo
+from cache_manager import get_cache, is_cache_enabled
 
 # Constantes de configuración
 PYPI_BASE_URL = "https://pypi.org/pypi"
@@ -210,6 +211,7 @@ def get_wheel_url(files: List[Dict[str, Any]]) -> Optional[str]:
 def get_pypi_package_info(package: str, version: str) -> PackageInfo:
     """
     Consulta la API de PyPI para obtener información completa del paquete.
+    Incluye caché inteligente para evitar consultas repetidas.
     
     Args:
         package: Nombre del paquete.
@@ -218,6 +220,17 @@ def get_pypi_package_info(package: str, version: str) -> PackageInfo:
     Returns:
         Objeto PackageInfo validado con información del paquete.
     """
+    # Intentar obtener desde caché
+    if is_cache_enabled():
+        cache = get_cache()
+        cached_data = cache.get_pypi_cache(package, version)
+        if cached_data:
+            try:
+                # Convertir dict de caché a PackageInfo
+                return PackageInfo(**cached_data)
+            except Exception as e:
+                print(f"⚠️  Error convirtiendo caché PyPI {package}: {e}")
+    
     url = f"{PYPI_BASE_URL}/{package}/{version}/json"
     
     try:
@@ -264,6 +277,13 @@ def get_pypi_package_info(package: str, version: str) -> PackageInfo:
             requires_dist=info.get("requires_dist", []) or [],
             project_urls=info.get("project_urls", {}) or {}
         )
+        
+        # Guardar en caché si está habilitado
+        if is_cache_enabled():
+            cache = get_cache()
+            # Convertir PackageInfo a dict para caché
+            cache_data = package_info.model_dump()
+            cache.set_pypi_cache(package, version, cache_data)
         
         return package_info
         

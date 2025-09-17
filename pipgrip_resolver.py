@@ -5,11 +5,13 @@ import subprocess
 import os
 import tempfile
 from typing import List, Tuple
+from cache_manager import get_cache, is_cache_enabled
 
 
 def resolve_dependencies_with_pipgrip(libraries: List[str]) -> Tuple[str, str]:
     """
     Usa pipgrip para resolver el árbol completo de dependencias sin instalar paquetes.
+    Incluye caché inteligente para evitar recálculos en llamadas repetidas.
     
     Args:
         libraries (List[str]): Lista de librerías principales a analizar.
@@ -23,6 +25,14 @@ def resolve_dependencies_with_pipgrip(libraries: List[str]) -> Tuple[str, str]:
     if not libraries:
         raise ValueError("La lista de librerías no puede estar vacía")
     
+    # Intentar obtener resultado desde caché
+    if is_cache_enabled():
+        cache = get_cache()
+        cached_result = cache.get_pipgrip_cache(libraries)
+        if cached_result:
+            return cached_result
+    
+    # Si no hay caché, ejecutar pipgrip normalmente
     # Crear directorio temporal para el análisis
     temp_dir = tempfile.mkdtemp(prefix="snyk_analysis_")
     requirements_path = os.path.join(temp_dir, "requirements.txt")
@@ -46,6 +56,12 @@ def resolve_dependencies_with_pipgrip(libraries: List[str]) -> Tuple[str, str]:
             f.write(result.stdout.strip())
         
         print("Dependencias resueltas exitosamente")
+        
+        # Guardar en caché si está habilitado
+        if is_cache_enabled():
+            cache = get_cache()
+            cache.set_pipgrip_cache(libraries, temp_dir, requirements_path)
+        
         return temp_dir, requirements_path
         
     except subprocess.CalledProcessError as e:
