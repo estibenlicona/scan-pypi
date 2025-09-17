@@ -1,5 +1,33 @@
-def flatten_vulnerabilities(vuln_list):
-    flat = []
+import json
+from typing import List, Dict, Any, Optional, Set, TypedDict
+from datetime import datetime, timedelta
+from models import PackageInfo
+
+
+class TreeReportDict(TypedDict, total=False):
+    """Tipo para el diccionario de reporte de árbol."""
+    name: str
+    version: str
+    upload_time: Optional[str]
+    download_url: Optional[str]
+    count_vulnerabilities: int
+    status: str
+    licenses: List[str]
+    license_rejected: bool
+    maintainability: str
+    rejected_by_dependency: bool
+    dependencies: List['TreeReportDict']
+
+
+class FinalReportDict(TypedDict):
+    """Tipo para el reporte consolidado final."""
+    vulnerabilities: List[Dict[str, Any]]
+    packages: List[TreeReportDict]
+
+
+def flatten_vulnerabilities(vuln_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convierte vulnerabilidades a formato plano."""
+    flat: List[Dict[str, Any]] = []
     for v in vuln_list:
         flat.append({
             "id": v.get("id") or v.get("id", "N/A"),
@@ -12,33 +40,49 @@ def flatten_vulnerabilities(vuln_list):
         })
     return flat
 
-def get_license_info(pkg_name, pkg_version, all_packages):
-    licenses = []
+
+def get_license_info(pkg_name: str, pkg_version: str, all_packages: List[PackageInfo]) -> Dict[str, List[str]]:
+    """Obtiene información de licencias para un paquete específico."""
+    licenses: List[str] = []
     for pkg in all_packages:
-        if pkg.get("package") == pkg_name and pkg.get("version") == pkg_version:
-            pypi_license = pkg.get("license")
+        if pkg.package == pkg_name and pkg.version == pkg_version:
+            pypi_license = pkg.license
             if pypi_license:
                 licenses.append(pypi_license)
     return {"licenses": licenses}
 
-def build_tree(key, vuln_count, maintained_set, pkg_index, all_packages):
+
+def build_tree(
+    key: str, 
+    vuln_count: Dict[str, int], 
+    maintained_set: Set[str], 
+    pkg_index: Dict[str, PackageInfo], 
+    all_packages: List[PackageInfo]
+) -> Optional[TreeReportDict]:
+    """Construye árbol jerárquico de dependencias con información de vulnerabilidades."""
     pkg = pkg_index.get(key)
     if not pkg:
         return None
+        
     count_vulns = vuln_count.get(key, 0)
     is_maintained = key in maintained_set
-    deps = pkg.get("dependencies", [])
-    dep_objs = [build_tree(dep_key, vuln_count, maintained_set, pkg_index, all_packages) for dep_key in deps if build_tree(dep_key, vuln_count, maintained_set, pkg_index, all_packages)]
+    deps = pkg.dependencies
+    dep_objs = [
+        dep_tree for dep_key in deps 
+        if (dep_tree := build_tree(dep_key, vuln_count, maintained_set, pkg_index, all_packages)) is not None
+    ]
+    
     has_rejected_dep = any(d.get("status") == "rejected" for d in dep_objs)
     rejected_by_dependency = has_rejected_dep
     status = "approved" if (count_vulns == 0 and is_maintained and not has_rejected_dep) else "rejected"
     total_vulns = count_vulns + sum(d.get("count_vulnerabilities", 0) for d in dep_objs)
-    lic_info = get_license_info(pkg.get("package"), pkg.get("version"), all_packages)
-    snyk_license = pkg.get("snyk_license")
+    
+    lic_info = get_license_info(pkg.package, pkg.version, all_packages)
+    snyk_license = pkg.snyk_license
     licenses = [snyk_license] if snyk_license else lic_info["licenses"]
-    upload_time = pkg.get("upload_time")
+    upload_time = pkg.upload_time
     maintainability = "active"
-    from datetime import datetime, timedelta
+    
     try:
         if upload_time:
             upload_dt = datetime.fromisoformat(upload_time.replace("Z", ""))
@@ -46,11 +90,12 @@ def build_tree(key, vuln_count, maintained_set, pkg_index, all_packages):
                 maintainability = "inactive"
     except Exception:
         pass
-    report = {
-        "name": pkg.get("package"),
-        "version": pkg.get("version"),
+        
+    report: TreeReportDict = {
+        "name": pkg.package,
+        "version": pkg.version,
         "upload_time": upload_time,
-        "download_url": pkg.get("download_url"),
+        "download_url": pkg.home_page,  # Usar home_page como download_url
         "count_vulnerabilities": total_vulns,
         "status": status,
         "licenses": licenses,
@@ -60,36 +105,47 @@ def build_tree(key, vuln_count, maintained_set, pkg_index, all_packages):
         "dependencies": dep_objs
     }
     return report
-import json
 
 
-def generate_consolidated_report(vulnerabilities, all_packages, maintained_packages, output_file="consolidated_report.json"):
+def generate_consolidated_report(
+    vulnerabilities: List[Dict[str, Any]], 
+    all_packages: List[PackageInfo], 
+    maintained_packages: List[PackageInfo], 
+    output_file: str = "consolidated_report.json"
+) -> None:
     """
     Genera y guarda el reporte consolidado en un archivo JSON con propiedad 'packages'.
+    
     Args:
-        vulnerabilities (list): Lista de vulnerabilidades.
-        all_packages (list): Todos los paquetes con info PyPI.
-        maintained_packages (list): Paquetes que cumplen la regla de negocio.
-        output_file (str): Nombre del archivo de salida.
+        vulnerabilities: Lista de vulnerabilidades.
+        all_packages: Todos los paquetes con info PyPI.
+        maintained_packages: Paquetes que cumplen la regla de negocio.
+        output_file: Nombre del archivo de salida.
     """
     # Map package@version to vulnerability count (using moduleName for Snyk output)
-    vuln_count = {}
+    vuln_count: Dict[str, int] = {}
     for v in vulnerabilities:
         pkg = v.get('moduleName') or v.get('package')
         ver = v.get('version')
         key = f"{pkg}@{ver}"
         vuln_count[key] = vuln_count.get(key, 0) + 1
 
-    maintained_set = set(f"{p.get('package')}@{p.get('version')}" for p in maintained_packages)
-    pkg_index = {f"{pkg.get('package')}@{pkg.get('version')}": pkg for pkg in all_packages}
+    maintained_set = set(f"{p.package}@{p.version}" for p in maintained_packages)
+    pkg_index = {f"{pkg.package}@{pkg.version}": pkg for pkg in all_packages}
     all_keys = set(pkg_index.keys())
-    dep_keys = set(dep for pkg in all_packages for dep in pkg.get("dependencies", []))
+    dep_keys = set(dep for pkg in all_packages for dep in pkg.dependencies)
     root_keys = list(all_keys - dep_keys)
-    packages_tree = [build_tree(key, vuln_count, maintained_set, pkg_index, all_packages) for key in root_keys if build_tree(key, vuln_count, maintained_set, pkg_index, all_packages)]
-    final_report = {
+    
+    packages_tree = [
+        tree for key in root_keys 
+        if (tree := build_tree(key, vuln_count, maintained_set, pkg_index, all_packages)) is not None
+    ]
+    
+    final_report: FinalReportDict = {
         "vulnerabilities": flatten_vulnerabilities(vulnerabilities),
         "packages": packages_tree
     }
+    
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(final_report, f, ensure_ascii=False, indent=2)
     print(f"Reporte consolidado generado: {output_file}")

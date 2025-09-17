@@ -1,45 +1,78 @@
 # snyk_analyzer.py
-# Módulo para ejecutar análisis con Snyk
+# Módulo para ejecutar análisis con Snyk CLI sobre archivos requirements.txt expandidos
 
 import subprocess
 import json
-import inspect
+import os
+from typing import Tuple, Dict, Any, Optional
 from config import SNYK_PATH
 
-def run_snyk_test(venv_python, scan_dir, snyk_org=None):
+
+def run_snyk_test_on_requirements(scan_dir: str, snyk_org: Optional[str] = None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
-    Ejecuta el análisis de Snyk en formato JSON.
+    Ejecuta análisis de Snyk sobre requirements.txt sin instalar dependencias.
     
     Args:
-        venv_python (str): Ruta al Python del entorno virtual.
-        scan_dir (str): Directorio donde están los archivos copiados.
-    
+        scan_dir (str): Directorio que contiene requirements.txt expandido.
+        snyk_org (str, optional): Organización de Snyk para el análisis.
+        
     Returns:
-        subprocess.CompletedProcess: Resultado del comando.
+        Tuple[Dict[str, Any], Dict[str, Any]]: (dependencias_obj, vulnerabilidades_obj)
+        
+    Raises:
+        RuntimeError: Si Snyk falla o no retorna JSON válido.
+        FileNotFoundError: Si requirements.txt no existe en scan_dir.
     """
-    print("Ejecutando análisis de Snyk...")
-    # Permitir parámetro opcional snyk_org
-    frame = inspect.currentframe()
-    args, _, _, values = inspect.getargvalues(frame)
-    snyk_org = values.get('snyk_org', None)
+    requirements_path = os.path.join(scan_dir, "requirements.txt")
+    if not os.path.exists(requirements_path):
+        raise FileNotFoundError(f"requirements.txt no encontrado en {scan_dir}")
+    
+    print("Ejecutando análisis de Snyk sobre requirements.txt expandido...")
+    
+    # Construir comando Snyk
     org_arg = f"--org={snyk_org}" if snyk_org else ""
-    cmd = [SNYK_PATH, 'test', '--json', org_arg, '--print-deps', f'--command={venv_python}']
+    cmd = [SNYK_PATH, 'test', '--json', org_arg, '--print-deps', '--file=requirements.txt']
     cmd = [c for c in cmd if c]  # Elimina argumentos vacíos
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=scan_dir)
-        # Separar y retornar ambos objetos JSON
-    content = result.stdout
-    objects = []
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=scan_dir)
+        return _parse_snyk_json_output(result.stdout)
+        
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Error ejecutando Snyk CLI: {e.stderr}")
+    except FileNotFoundError:
+        raise RuntimeError("Snyk CLI no está disponible. Verifica instalación y autenticación.")
+
+
+def _parse_snyk_json_output(stdout_content: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Parsea la salida JSON de Snyk CLI y extrae objetos de dependencias y vulnerabilidades.
+    
+    Args:
+        stdout_content (str): Salida estándar del comando Snyk.
+        
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: (dependencias_obj, vulnerabilidades_obj)
+        
+    Raises:
+        RuntimeError: Si no se pueden parsear objetos JSON válidos.
+    """
+    if not stdout_content.strip():
+        raise RuntimeError("Snyk no generó salida. Verifica configuración y autenticación.")
+    
+    objects: list[dict[str, Any]] = []
     decoder = json.JSONDecoder()
-    idx = 0
-    while idx < len(content):
+    content = stdout_content
+    
+    while content.strip():
         content = content.lstrip()
         try:
             obj, end = decoder.raw_decode(content)
             objects.append(obj)
             content = content[end:]
-            idx = 0
         except json.JSONDecodeError:
             break
+    
     if len(objects) == 2:
         print("Snyk: se detectaron dos objetos JSON (dependencias y vulnerabilidades)")
         return objects[0], objects[1]
@@ -51,7 +84,9 @@ def run_snyk_test(venv_python, scan_dir, snyk_org=None):
         return {}, {}
 
 
-def get_snyk_vuln_info(result):
+from typing import List, Set, Tuple, Dict, Any
+
+def get_snyk_vuln_info(result: subprocess.CompletedProcess[str]) -> Dict[str, Any]:
     """
     Obtiene la información relevante de las vulnerabilidades desde el resultado del análisis de Snyk.
     
@@ -59,12 +94,12 @@ def get_snyk_vuln_info(result):
         result (subprocess.CompletedProcess): Resultado del comando.
     
     Returns:
-        list: Lista de diccionarios con información de las vulnerabilidades.
+        Dict[str, Any]: Diccionario con listas de vulnerabilidades y árboles de dependencias.
     """
     try:
         data = json.loads(result.stdout)
-        vuln_list = []
-        dep_tree_set = set()
+        vuln_list: List[Dict[str, Any]] = []
+        dep_tree_set: Set[Tuple[str, ...]] = set()
         # Obtener vulnerabilidades
         if 'vulnerabilities' in data and data['vulnerabilities']:
             for vuln in data['vulnerabilities']:
@@ -73,10 +108,10 @@ def get_snyk_vuln_info(result):
                 version = vuln.get('version', 'N/A')
                 title = vuln.get('title', 'N/A')
                 cvss = vuln.get('CVSSv3', 'N/A')
-                fixed_in = vuln.get('fixedIn')
+                fixed_in: list[Any] | str | None = vuln.get('fixedIn')
                 if fixed_in:
                     if isinstance(fixed_in, list):
-                        fixed_in_str = ", ".join(fixed_in)
+                        fixed_in_str = ", ".join(str(item) for item in fixed_in)
                     else:
                         fixed_in_str = str(fixed_in)
                 else:
@@ -98,7 +133,7 @@ def get_snyk_vuln_info(result):
                     "fixed_in": fixed_in_str
                 })
         # Convertir el set de árboles de dependencias en una lista única
-        dep_trees = [list(dep) for dep in dep_tree_set]
+        dep_trees: List[List[str]] = [list(dep) for dep in dep_tree_set]
         return {
             "vulnerabilities": vuln_list,
             "dependency_trees": dep_trees

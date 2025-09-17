@@ -8,7 +8,7 @@ import shutil
 from dotenv import load_dotenv
 load_dotenv()
 
-def get_env_var(name):
+def get_env_var(name: str) -> str:
 	value = os.getenv(name)
 	if value is None:
 		raise RuntimeError(f"Variable de entorno '{name}' no definida en .env")
