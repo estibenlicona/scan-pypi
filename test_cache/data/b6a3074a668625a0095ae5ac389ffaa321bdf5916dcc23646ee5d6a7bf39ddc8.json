@@ -1,0 +1,1 @@
+{"package": "requests==2.32.5", "dependencies": [{"package": "certifi==2025.8.3", "dependencies": []}, {"package": "charset-normalizer==3.4.3", "dependencies": []}, {"package": "idna==3.10", "dependencies": []}, {"package": "urllib3==2.5.0", "dependencies": []}]}

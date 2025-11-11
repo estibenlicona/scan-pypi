@@ -1,3 +1,33 @@
 {
-    "python-envs.pythonProjects": []
+    "python-envs.pythonProjects": [],
+    
+    // Python path configuration - Treat src/ as project root
+    "python.analysis.extraPaths": ["./src"],
+    "python.defaultInterpreterPath": "./.venv/Scripts/python.exe",
+    
+    // Pylance Configuration - Relaxed typing to reduce editor noise
+    // Use 'basic' to keep helpful checks without strict enforcement across the repo
+    "python.analysis.typeCheckingMode": "basic",
+    
+    // Per-directory type checking settings
+    "python.analysis.diagnosticSeverityOverrides": {
+        // Global diagnostics: lower severities to reduce strict failures in editors
+        "reportUnknownParameterType": "warning",
+        "reportUnknownArgumentType": "warning",
+        "reportUnknownLambdaType": "warning",
+        "reportGeneralTypeIssues": "warning",
+
+        // Interface/infrastructure layers: informational for optional/any cases
+        "reportOptionalMemberAccess": "information",
+        "reportOptionalSubscript": "information",
+        "reportOptionalCall": "information",
+        "reportOptionalIterable": "information",
+        "reportOptionalOperand": "information",
+        "reportOptionalContextManager": "information",
+        "reportAny": "information",
+
+        // Suppress noisy partial-unknown-type warnings for dynamic JSON fields
+        "reportUnknownVariableType": "none",
+        "reportUnknownMemberType": "none"
+    }
 }

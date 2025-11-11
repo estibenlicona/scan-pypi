@@ -1,53 +1,220 @@
-## Ejemplo de ubicación de librerías a escanear
+# PyPI Dependency & Vulnerability Scanner
 
-Supón que tu archivo `requirements.txt` contiene las librerías que deseas analizar. Debes colocarlo dentro de la carpeta indicada por la variable `SCAN_FOLDER` (por defecto `scan_input`).
+🏗️ **Proyecto Python con Arquitectura Hexagonal** para análisis automatizado de dependencias, escaneo de vulnerabilidades y generación de reportes, integrando Snyk CLI, PyPI API y pipgrip.
 
-Estructura recomendada:
+## 🚀 Características principales
+
+- [Ok] **Arquitectura Hexagonal (Ports & Adapters)** con separación clara de responsabilidades
+- [Ok] **Escaneo de dependencias y vulnerabilidades** con Snyk CLI  
+- [Ok] **Enriquecimiento de metadatos** desde PyPI API (fecha, licencia, URL, classifiers)
+- [Ok] **Resolución de dependencias** con pipgrip para árbol completo
+- [Ok] **Reporte jerárquico en JSON** reflejando el árbol real de dependencias
+- [Ok] **Reglas de negocio configurables** vía variables de entorno
+- [Ok] **Sistema de caché asíncrono** para optimización de performance  
+- [Ok] **Interfaces CLI y HTTP** para diferentes modos de uso
+- [Ok] **Tipado estricto** con mypy compliance
+- [Ok] **Configuración centralizada** con validación
+
+## 🏗️ Arquitectura Hexagonal
 
 ```
-scan_input/
-	requirements.txt
+src/
+├── domain/                 # 🎯 Lógica de negocio pura
+│   ├── entities/          #    Entidades de dominio (Package, Policy, etc.)
+│   ├── ports/             #    Interfaces/contratos (ABC)
+│   └── services/          #    Servicios de dominio
+├── application/           # 🔄 Casos de uso y orquestación  
+│   ├── use_cases/        #    Casos de uso (AnalyzePackagesUseCase)
+│   ├── services/         #    Servicios de aplicación
+│   └── dtos/             #    Objetos de transferencia de datos
+├── infrastructure/       # 🔧 Adaptadores e integraciones
+│   ├── adapters/         #    Implementaciones (Snyk, PyPI, Cache)
+│   └── config/           #    Configuración y settings
+└── interface/            # 🌐 Puntos de entrada
+    ├── cli/              #    Interfaz de línea de comandos
+    └── http/             #    API REST con FastAPI
 ```
 
-Puedes editar el archivo `requirements.txt` para agregar, quitar o modificar los paquetes a escanear.
-# Requisitos previos
+## 📋 Requisitos previos
 
-Para que el escaneo funcione correctamente debes:
+1. **Python 3.11+** con pip y venv
+2. **Snyk CLI instalado** y autenticado:
+   ```bash
+   # Instalar Snyk CLI
+   npm install -g snyk
+   # O descargar desde: https://docs.snyk.io/snyk-cli/install-the-snyk-cli
+   
+   # Autenticar
+   snyk auth
+   ```
+3. **Organización activa en Snyk** (https://snyk.io/org/)
+4. **Variables de entorno configuradas** (ver `.env.example`)
 
-1. Tener una organización activa en Snyk (https://snyk.io/org/).
-2. Instalar el Snyk CLI: https://docs.snyk.io/snyk-cli/install-the-snyk-cli
-3. Autenticarte en Snyk CLI ejecutando `snyk auth` y seguir el proceso en el navegador.
-4. Tener configurada la variable SNYK_ORG en el archivo `.env` con el nombre de tu organización.
-5. Colocar el archivo `requirements.txt` con las librerías que deseas escanear dentro de la carpeta indicada por la variable `SCAN_FOLDER` (por defecto `scan_input`).
-6. Instalar las dependencias del proyecto: `pip install -r requirements.txt`
-7. Activar el entorno virtual: `.venv\Scripts\activate`
-8. Ejecutar el análisis: `python main.py`
+## ⚡ Instalación y uso
 
-El reporte se generará en `consolidated_report.json` y no se subirá al repositorio (está en `.gitignore`).
+### 1. Clonar y configurar
 
-**Nota:** Si el CLI de Snyk no está instalado, no has autenticado, o la organización no existe, el análisis fallará.
+```bash
+git clone <repo-url>
+cd pypi
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # Linux/Mac
+pip install -r requirements.txt
+```
 
+### 2. Configurar variables de entorno
 
-# PyPI Dependency & License Scanner
+```bash
+cp .env.example .env
+# Editar .env con tu configuración:
+SNYK_ORG=tu-organizacion-snyk
+CACHE_ENABLED=true
+LOG_LEVEL=INFO
+```
 
-Proyecto Python para análisis automatizado de dependencias, escaneo de vulnerabilidades y reporte de licencias, integrando Snyk y PyPI.
+### 3. Preparar archivo de dependencias
 
-## Características principales
-- **Escaneo de dependencias y vulnerabilidades con Snyk CLI**
-- **Enriquecimiento de metadatos desde PyPI (fecha, licencia, URL, classifiers)**
-- **Reporte jerárquico en JSON, reflejando el árbol real de dependencias**
-- **Lógica avanzada para extracción y priorización de licencias (Snyk, PyPI, classifiers, texto largo, Dual License)**
-- **Reglas de negocio configurables vía `.env`**
-- **Separación estricta de responsabilidades en módulos**
+```bash
+# Colocar requirements.txt en scan_input/
+echo "requests==2.31.0" > scan_input/requirements.txt
+echo "fastapi==0.104.1" >> scan_input/requirements.txt
+```
 
-## Arquitectura y módulos
-- `main.py`: Orquesta el flujo principal. Crea venv temporal, instala dependencias, ejecuta Snyk, mapea dependencias, enriquece con PyPI, aplica reglas y genera el reporte.
-- `snyk_analyzer.py`: Ejecuta Snyk CLI y retorna objetos JSON de dependencias y vulnerabilidades.
-- `dependency_utils.py`: Extrae recursivamente todo el árbol de dependencias desde la salida de Snyk.
-- `package_utils.py`: Enriquece cada paquete (incluyendo subdependencias) con metadatos de PyPI.
-- `report_utils.py`: Genera el reporte JSON jerárquico, anidando dependencias como objetos y priorizando licencias.
-- `business_rules.py`: Aplica reglas de aprobación usando configuración en `.env`.
-- `pypi_info.py`: Consulta la API de PyPI y extrae la licencia usando lógica avanzada (campo, classifiers, texto largo, Dual License).
+### 4. Ejecutar análisis
+
+#### 🖥️ Interfaz CLI
+```bash
+python -m src.interface.cli scan_input/requirements.txt
+```
+
+#### 🌐 API HTTP  
+```bash
+# Iniciar servidor
+python -m src.interface.http
+
+# Hacer request
+curl -X POST "http://localhost:8000/analyze" \
+     -H "Content-Type: application/json" \
+     -d '{"libraries": ["requests==2.31.0", "fastapi"]}'
+```
+
+## 📊 Estructura del reporte
+
+El reporte generado (`consolidated_report.json`) incluye:
+
+```json
+{
+  "timestamp": "2025-09-17T21:00:00Z",
+  "summary": {
+    "total_packages": 45,
+    "maintained_packages": 42,
+    "vulnerabilities_found": 2,
+    "policy_violations": 1
+  },
+  "dependency_graph": {
+    "root_packages": [
+      {
+        "identifier": {"name": "requests", "version": "2.31.0"},
+        "metadata": {
+          "license": {"name": "Apache-2.0", "type": "APACHE_2_0"},
+          "upload_time": "2023-05-22T...",
+          "is_maintained": true
+        },
+        "dependencies": [...]
+      }
+    ]
+  },
+  "vulnerabilities": [...],
+  "policy_evaluation": {...}
+}
+```
+
+## 🔧 Configuración avanzada
+
+### Variables de entorno disponibles
+
+```env
+# Snyk
+SNYK_ORG=your-org-name
+SNYK_TIMEOUT=60
+
+# Cache
+CACHE_ENABLED=true  
+CACHE_DIRECTORY=.cache
+CACHE_TTL_HOURS=24
+
+# API
+API_REQUEST_TIMEOUT=10
+API_MAX_RETRIES=3
+
+# Políticas de negocio
+MAINTAINED_YEARS=2
+BLOCKED_LICENSES=GPL-3.0,AGPL-3.0
+MAX_VULNERABILITY_SEVERITY=HIGH
+
+# Logging
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+
+# Reporte
+REPORT_OUTPUT_PATH=consolidated_report.json
+REPORT_FORMAT=json
+REPORT_INCLUDE_SUMMARY=true
+```
+
+## 🧪 Testing
+
+```bash
+# Ejecutar todos los tests
+pytest tests/ test_hexagonal_architecture.py test_strict_typing.py test_cache_system.py -v
+
+# Solo tests de arquitectura
+pytest test_hexagonal_architecture.py -v
+
+# Solo tests de dominio
+pytest tests/unit/test_domain_services.py -v
+```
+
+## 📁 Archivos importantes
+
+- **`src/`**: Nueva arquitectura hexagonal completa
+- **`tests/`**: Tests unitarios y de integración  
+- **`scan_input/`**: Carpeta para archivos requirements.txt a analizar
+- **`.env`**: Configuración de variables de entorno
+- **`requirements.txt`**: Dependencias del proyecto
+- **`ARCHITECTURE.md`**: Documentación detallada de la arquitectura
+
+## 🔍 Flujo de análisis
+
+1. **Carga de configuración** desde variables de entorno
+2. **Resolución de dependencias** con pipgrip (árbol completo)
+3. **Análisis de vulnerabilidades** con Snyk CLI
+4. **Enriquecimiento de metadatos** desde PyPI API  
+5. **Aplicación de reglas de negocio** (mantenibilidad, licencias)
+6. **Generación de reporte** jerárquico con toda la información
+
+## 📈 Beneficios de la arquitectura
+
+- [Ok] **Mantenibilidad**: Separación clara de responsabilidades
+- [Ok] **Testabilidad**: Cada capa es testeable independientemente  
+- [Ok] **Extensibilidad**: Fácil agregar nuevos adaptadores o casos de uso
+- [Ok] **Flexibilidad**: Cambiar implementaciones sin afectar la lógica de negocio
+- [Ok] **Escalabilidad**: Arquitectura preparada para crecimiento
+
+## 🤝 Contribución
+
+1. Fork del repositorio
+2. Crear branch para feature (`git checkout -b feature/nueva-funcionalidad`)
+3. Commit cambios (`git commit -am 'Agregar nueva funcionalidad'`)
+4. Push al branch (`git push origin feature/nueva-funcionalidad`)
+5. Crear Pull Request
+
+---
+
+**Nota**: El reporte generado no se sube al repositorio (incluido en `.gitignore`).
+
+Para más detalles técnicos, consultar `ARCHITECTURE.md`.
 - `utils.py`: Utilidades para manejo de entorno virtual y dependencias.
 
 ## Lógica de licencias
