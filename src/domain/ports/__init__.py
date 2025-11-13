@@ -3,6 +3,11 @@ Domain ports - Interfaces that define contracts for external dependencies.
 """
 
 from __future__ import annotations
+from typing import Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.domain.entities import AnalysisResult
+    from src.application.dtos import ReportDTO
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
@@ -92,8 +97,11 @@ class ReportSinkPort(ABC):
     """Port for persisting analysis reports."""
     
     @abstractmethod
-    async def save_report(self, result: AnalysisResult, format_type: str = "json") -> str:
-        """Save analysis result to storage and return location."""
+    async def save_report(self, result: Union[AnalysisResult, ReportDTO], format_type: str = "json") -> str:
+        """Save analysis result or report to storage and return location.
+        
+        Accepts either an AnalysisResult (domain entity) or a ReportDTO (application DTO).
+        """
         pass
     
     @abstractmethod

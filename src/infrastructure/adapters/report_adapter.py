@@ -11,6 +11,7 @@ from dataclasses import is_dataclass, asdict
 from src.domain.entities import AnalysisResult, Package
 from src.domain.ports import ReportSinkPort, LoggerPort
 from src.infrastructure.config.settings import ReportSettings
+from src.application.dtos import ReportDTO
 
 
 class FileReportSinkAdapter(ReportSinkPort):
@@ -30,11 +31,14 @@ class FileReportSinkAdapter(ReportSinkPort):
         
         try:
             # Support both domain AnalysisResult and dataclass ReportDTO
-            if is_dataclass(result):
-                # Convert dataclass to plain dict (ReportDTO -> serializable dict)
+            if isinstance(result, ReportDTO):
+                # Convert ReportDTO to plain dict
                 report_data = asdict(result)
+            elif isinstance(result, AnalysisResult):
+                # Use existing converter for domain AnalysisResult
+                report_data = self._convert_to_dict(result)
             else:
-                # Assume domain AnalysisResult-like object and use existing converter
+                # Fallback for other dataclasses
                 report_data = self._convert_to_dict(result)
             
             # Save to file
@@ -115,8 +119,6 @@ class FileReportSinkAdapter(ReportSinkPort):
             "classifiers": package.classifiers,
             "requires_dist": package.requires_dist,
             "project_urls": package.project_urls,
-            "github_url": package.github_url,
-            "github_license": package.github_license,
             "dependencies": [str(dep) for dep in package.dependencies],
             "license_rejected": package.license.is_rejected if package.license else False
         }

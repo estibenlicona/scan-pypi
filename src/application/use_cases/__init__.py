@@ -37,6 +37,7 @@ class AnalyzePackagesUseCase:
         self.cache = cache
         self.logger = logger
         self.approval_map = {}  # Store approval info for use in DTOs
+        self._last_result: AnalysisResult | None = None  # Keep last domain result
     
     async def execute(self, request: AnalysisRequest) -> AnalysisResultDTO:
         """Execute the complete package analysis."""
@@ -156,13 +157,14 @@ class AnalyzePackagesUseCase:
             # Step 6: Build result
             graph_builder = GraphBuilder()
             updated_graph = graph_builder.merge_package_data_into_graph(dependency_graph, enriched_packages)
-            
             report_builder = ReportBuilder()
             result = report_builder.build_analysis_result(
                 updated_graph, evaluated_vulns, maintained_packages, policy
             )
             
-            # Convert to DTO
+            # Store domain result and convert to DTO
+            self._last_result = result
+            return self._to_dto(result)
             return self._to_dto(result)
             
         except Exception as e:
@@ -394,7 +396,8 @@ class AnalyzePackagesUseCase:
                 aprobada=pkg.aprobada,
                 motivo_rechazo=pkg.motivo_rechazo,
                 dependencias_directas=enriched_direct,
-                dependencias_transitivas=enriched_transitive
+                dependencias_transitivas=enriched_transitive,
+                dependencias_rechazadas=pkg.dependencias_rechazadas
             )
             enriched_packages.append(enriched_pkg)
         
@@ -467,6 +470,7 @@ class AnalyzePackagesUseCase:
         motivo_rechazo = approval_info.motivo_rechazo if approval_info else None
         dependencias_directas = approval_info.dependencias_directas if approval_info else []
         dependencias_transitivas = approval_info.dependencias_transitivas if approval_info else []
+        dependencias_rechazadas = approval_info.dependencias_rechazadas if approval_info else []
         
         return PackageDTO(
             name=package.identifier.name,
@@ -491,7 +495,8 @@ class AnalyzePackagesUseCase:
             aprobada=aprobada,
             motivo_rechazo=motivo_rechazo,
             dependencias_directas=dependencias_directas,
-            dependencias_transitivas=dependencias_transitivas
+            dependencias_transitivas=dependencias_transitivas,
+            dependencias_rechazadas=dependencias_rechazadas,
         )
     
     def _package_info_to_dto(self, package_info: PackageInfo) -> PackageDTO:
@@ -524,7 +529,8 @@ class AnalyzePackagesUseCase:
             aprobada=package_info.aprobada,
             motivo_rechazo=package_info.motivo_rechazo,
             dependencias_directas=package_info.dependencias_directas.copy(),
-            dependencias_transitivas=package_info.dependencias_transitivas.copy()
+            dependencias_transitivas=package_info.dependencias_transitivas.copy(),
+            dependencias_rechazadas=package_info.dependencias_rechazadas.copy(),
         )
     
     def _short_license(self, raw_license: str) -> str:
@@ -578,8 +584,14 @@ class AnalyzePackagesUseCase:
                 return candidate
         
         # Last resort: truncate first line
-        fl = first_line.strip()
-        return fl[:120] if fl else "—"
+        first_line_stripped = first_line.strip()
+        return first_line_stripped[:120] if first_line_stripped else "—"
+    
+    def get_last_domain_result(self) -> AnalysisResult:
+        """Return the last domain AnalysisResult produced by execute()."""
+        if self._last_result is None:
+            raise RuntimeError("No analysis result available. Execute analysis first.")
+        return self._last_result
 
 
 class BuildConsolidatedReportUseCase:
@@ -674,7 +686,8 @@ class BuildConsolidatedReportUseCase:
             "dependencias_transitivas": [
                 {"name": dep.name, "version": dep.version, "latest_version": dep.latest_version}
                 for dep in pkg.dependencias_transitivas
-            ]
+            ],
+            "dependencias_rechazadas": pkg.dependencias_rechazadas,
         }
 
 
@@ -694,17 +707,15 @@ class PipelineOrchestrator:
         self.logger = logger
     
     async def run(self, request: AnalysisRequest) -> ReportDTO:
-        """Run the complete analysis pipeline."""
-        self.logger.info("Starting analysis pipeline", libraries=request.libraries)
-        
+        """Execute the complete analysis pipeline."""
         try:
-            # Step 1: Analyze packages
-            analysis_result = await self.analyze_use_case.execute(request)
+            # Step 1: Analyze packages (returns DTO)
+            analysis_result_dto = await self.analyze_use_case.execute(request)
             
             # Step 2: Build consolidated report
-            report = await self.report_use_case.execute(analysis_result)
+            report = await self.report_use_case.execute(analysis_result_dto)
 
-            # Step 3: Persist report using configured report sink (adapter accepts dataclass ReportDTO)
+            # Step 3: Persist report using configured report sink
             try:
                 saved_location = await self.report_sink.save_report(report)
                 self.logger.info("Report generated successfully", location=saved_location)

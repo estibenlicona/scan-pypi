@@ -21,24 +21,24 @@ class ApprovalEngine:
         vulnerabilities: List[VulnerabilityInfo],
         dependencies_map: Dict[str, List[str]],  # Maps package name to its direct dependencies
         all_packages: Dict[str, PackageInfo]  # All packages by name for lookup
-    ) -> Tuple[str, Optional[str], List[str], List[str]]:
+    ) -> Tuple[str, Optional[str], List[str], List[str], List[str]]:
         """
         Evaluate package approval status according to business rules.
         
         Rules:
         1. license_rejected must be False
         2. is_maintained should be True (but absence doesn't block approval)
-        3. No vulnerabilities reported by Snyk
-        4. For main packages: no direct dependency should be rejected
+        3. No vulnerabilities reported
+        4. All dependencies (recursive) must be approved
         5. Critical missing info (name, version) → "En verificación"
         6. Warnings are documented but don't block approval
         
         Returns:
-            (aprobada, motivo_rechazo, dependencias_directas, dependencias_transitivas)
+            (aprobada, motivo_rechazo, dependencias_directas, dependencias_transitivas, dependencias_rechazadas)
         """
         # Check for CRITICAL missing information (name, version only)
         if not package.name or not package.version:
-            return ("En verificación", "Datos básicos incompletos", [], [])
+            return ("En verificación", "Datos básicos incompletos", [], [], [])
         
         # Collect warnings about incomplete info (doesn't block approval)
         warnings: List[str] = []
@@ -61,7 +61,7 @@ class ApprovalEngine:
         if len(missing_critical) > 1:
             missing_items = missing_critical + missing_secondary
             motivo = "Datos incompletos para evaluar: " + "; ".join(missing_items)
-            return ("En verificación", motivo, [], [])
+            return ("En verificación", motivo, [], [], [])
         
         # Single missing data point becomes warning
         for item in missing_critical:
@@ -91,39 +91,60 @@ class ApprovalEngine:
         if rejection_reasons:
             all_reasons = rejection_reasons + warnings
             motivo = "; ".join(all_reasons)
-            return ("No", motivo, [], [])
+            return ("No", motivo, [], [], [])
         
         # Get direct dependencies for this package
         direct_deps = dependencies_map.get(package.name, [])
         
-        # Rule 4: Check if any direct dependency is rejected
+        # Rule 4: Check if ANY dependency (direct or transitive) is rejected
+        # Collect all rejected dependencies recursively
         rejected_deps: List[str] = []
-        for dep_name in direct_deps:
-            if dep_name in all_packages:
-                dep_package = all_packages[dep_name]
-                # If dependency is marked as rejected, collect it
-                if dep_package.aprobada == "No":
-                    rejected_deps.append(dep_name)
+        rejected_dep_names: List[str] = []
         
-        if rejected_deps:
-            all_reasons = [f"Dependencias directas rechazadas: {', '.join(rejected_deps)}"] + warnings
+        def collect_rejected_deps(pkg_name: str, visited: set[str] | None = None) -> None:
+            """Recursively collect all rejected dependencies."""
+            if visited is None:
+                visited = set()
+            if pkg_name in visited:
+                return
+            visited.add(pkg_name)
+            
+            # Check direct dependencies
+            for dep_entry in dependencies_map.get(pkg_name, []):
+                # Extract package name from versioned format (e.g., "colorama==0.4.6" -> "colorama")
+                dep_name = dep_entry.split("==")[0].split(">=")[0].split("<")[0].strip()
+                if dep_name in all_packages:
+                    dep_package = all_packages[dep_name]
+                    if dep_package.aprobada == "No":
+                        if dep_name not in rejected_dep_names:
+                            rejected_dep_names.append(dep_name)
+                    # Recurse into this dependency
+                    collect_rejected_deps(dep_name, visited)
+        
+        # Collect all rejected dependencies starting from this package
+        collect_rejected_deps(package.name)
+        
+        if rejected_dep_names:
+            all_reasons = ["Dependencias rechazadas"] + warnings
             motivo = "; ".join(all_reasons)
-            return ("No", motivo, direct_deps, [])
+            # Calculate transitive dependencies even for rejected packages
+            transitive_deps = self._get_transitive_dependencies(package.name, dependencies_map, direct_deps)
+            return ("No", motivo, direct_deps, transitive_deps, rejected_dep_names)
         
         # All critical rules passed: package is approved
-        # Separate production deps from dev/optional deps using requires_dist
-        production_deps, dev_and_optional_deps = self._separate_production_and_dev_deps(
-            package.requires_dist,
-            direct_deps
-        )
+        # Get all direct dependencies for this package
+        direct_dep_names = direct_deps
+        
+        # Calculate transitive dependencies (dependencies of dependencies)
+        transitive_deps = self._get_transitive_dependencies(package.name, dependencies_map, direct_deps)
         
         # Include warnings in approval message if any
         motivo_final = None
         if warnings:
             motivo_final = "; ".join(warnings)
         
-        # Return: (aprobada, motivo, production_deps, dev_and_optional_deps)
-        return ("Sí", motivo_final, production_deps, dev_and_optional_deps)
+        # Return: (aprobada, motivo, direct_deps, transitive_deps, dependencias_rechazadas)
+        return ("Sí", motivo_final, direct_dep_names, transitive_deps, [])
     
     def _has_required_info(self, package: PackageInfo, vulnerabilities: List[VulnerabilityInfo]) -> bool:
         """Check if all CRITICAL information is available to evaluate approval.
@@ -145,21 +166,37 @@ class ApprovalEngine:
     ) -> List[str]:
         """
         Get transitive dependencies (dependencies of dependencies).
-        For now, returns all other dependencies not in direct_deps.
+        Returns all dependencies not in direct_deps.
+        
+        Args:
+            package_name: The package to get transitives for
+            dependencies_map: Maps package name to list of versioned dependency strings
+            direct_deps: List of direct dependency strings (e.g., "colorama==0.4.6")
+        
+        Returns:
+            List of transitive dependency strings
         """
         transitive: List[str] = []
-        visited = set(direct_deps)
+        # Create a set of direct dependency names (without versions) to avoid duplicates
+        visited = set()
+        for dep in direct_deps:
+            dep_name = dep.split("==")[0].split(">=")[0].split("<")[0].strip()
+            visited.add(dep_name)
         
         def collect_transitive(pkg: str) -> None:
-            for dep in dependencies_map.get(pkg, []):
-                if dep not in visited:
-                    visited.add(dep)
-                    transitive.append(dep)
-                    collect_transitive(dep)
+            """Recursively collect transitive dependencies."""
+            for dep_entry in dependencies_map.get(pkg, []):
+                # Extract package name from versioned string (e.g., "colorama==0.4.6" -> "colorama")
+                dep_name = dep_entry.split("==")[0].split(">=")[0].split("<")[0].strip()
+                if dep_name not in visited:
+                    visited.add(dep_name)
+                    transitive.append(dep_entry)
+                    collect_transitive(dep_name)
         
         # Start from direct dependencies
-        for direct_dep in direct_deps:
-            collect_transitive(direct_dep)
+        for dep_entry in direct_deps:
+            dep_name = dep_entry.split("==")[0].split(">=")[0].split("<")[0].strip()
+            collect_transitive(dep_name)
         
         return transitive
     
@@ -220,14 +257,20 @@ class ApprovalEngine:
     ) -> List[PackageInfo]:
         """
         Evaluate approval status for all packages and return updated list.
+        
+        This is done in TWO PASSES:
+        1. First pass: Evaluate each package based on its own criteria
+        2. Second pass: Re-evaluate packages with rejected dependencies
+        
+        This ensures that if a package depends on a rejected package, it too is rejected.
         """
-        # Create lookup dictionary
+        # PASS 1: Initial evaluation of all packages
         all_packages = {pkg.name: pkg for pkg in packages}
         
         updated_packages: List[PackageInfo] = []
         
         for package in packages:
-            aprobada, motivo_rechazo, direct_deps, transitive_deps = self.evaluate_package_approval(
+            aprobada, motivo_rechazo, direct_deps, transitive_deps, rejected_deps = self.evaluate_package_approval(
                 package,
                 vulnerabilities,
                 dependencies_map,
@@ -240,11 +283,73 @@ class ApprovalEngine:
                 aprobada,
                 motivo_rechazo,
                 direct_deps,
-                transitive_deps
+                transitive_deps,
+                rejected_deps,
             )
             updated_packages.append(updated_pkg)
         
-        return updated_packages
+        # PASS 2: Re-evaluate packages that have rejected dependencies
+        # Update the lookup dictionary with first-pass results
+        all_packages = {pkg.name: pkg for pkg in updated_packages}
+        
+        final_packages: List[PackageInfo] = []
+        
+        for package in updated_packages:
+            # Check if this package depends on any rejected packages
+            rejected_dep_names: List[str] = []
+            
+            def collect_rejected_deps_from_final(pkg_name: str, visited: set[str] | None = None) -> None:
+                """Recursively collect rejected dependencies using final pass results."""
+                if visited is None:
+                    visited = set()
+                if pkg_name in visited:
+                    return
+                visited.add(pkg_name)
+                
+                for dep_entry in dependencies_map.get(pkg_name, []):
+                    dep_name = dep_entry.split("==")[0].split(">=")[0].split("<")[0].strip()
+                    if dep_name in all_packages:
+                        dep_package = all_packages[dep_name]
+                        if dep_package.aprobada == "No":
+                            if dep_name not in rejected_dep_names:
+                                rejected_dep_names.append(dep_name)
+                        collect_rejected_deps_from_final(dep_name, visited)
+            
+            collect_rejected_deps_from_final(package.name)
+            
+            # If this package has rejected dependencies and is currently approved, reject it
+            if rejected_dep_names and package.aprobada == "Sí":
+                direct_deps_names = [d.name for d in package.dependencias_directas]
+                transitive_deps_names = [d.name for d in package.dependencias_transitivas]
+                final_pkg = self._update_package_approval(
+                    package,
+                    "No",
+                    "Dependencias rechazadas",
+                    direct_deps_names,
+                    transitive_deps_names,
+                    rejected_dep_names,
+                )
+                final_packages.append(final_pkg)
+            elif rejected_dep_names and package.aprobada != "Sí":
+                # Already rejected, but update rejected_dep_names if empty
+                if not package.dependencias_rechazadas:
+                    direct_deps_names = [d.name for d in package.dependencias_directas]
+                    transitive_deps_names = [d.name for d in package.dependencias_transitivas]
+                    final_pkg = self._update_package_approval(
+                        package,
+                        package.aprobada,
+                        package.motivo_rechazo,
+                        direct_deps_names,
+                        transitive_deps_names,
+                        rejected_dep_names,
+                    )
+                    final_packages.append(final_pkg)
+                else:
+                    final_packages.append(package)
+            else:
+                final_packages.append(package)
+        
+        return final_packages
     
     def _update_package_approval(
         self,
@@ -252,7 +357,8 @@ class ApprovalEngine:
         aprobada: str,
         motivo_rechazo: Optional[str],
         dependencias_directas: List[str],
-        dependencias_transitivas: List[str]
+        dependencias_transitivas: List[str],
+        dependencias_rechazadas: List[str],
     ) -> PackageInfo:
         """Create an updated PackageInfo with new approval status fields."""
         # Convert string dependency names to DependencyInfo objects
@@ -284,5 +390,6 @@ class ApprovalEngine:
             aprobada=aprobada,
             motivo_rechazo=motivo_rechazo,
             dependencias_directas=direct_deps_info,
-            dependencias_transitivas=transitive_deps_info
+            dependencias_transitivas=transitive_deps_info,
+            dependencias_rechazadas=dependencias_rechazadas,
         )

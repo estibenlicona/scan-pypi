@@ -51,6 +51,7 @@ class PackageInfo:
     # Business rule fields (calculated by domain services)
     aprobada: str = "En verificación"  # "Sí", "No", "En verificación"
     motivo_rechazo: Optional[str] = None  # Reason for rejection if aprobada="No"
+    dependencias_rechazadas: List[str] = field(default_factory=list)  # Dependencies that caused rejection
     dependencias_directas: List[DependencyInfo] = field(default_factory=list)  # Direct dependencies
     dependencias_transitivas: List[DependencyInfo] = field(default_factory=list)  # Transitive/dev dependencies
     
