@@ -3,7 +3,7 @@ Infrastructure adapters - External integrations implementing domain ports.
 """
 
 # infrastructure/adapters/__init__.py
-from .snyk_adapter import SnykCLIAdapter
+from .osv_adapter import OSVAdapter
 from .pypi_adapter import PyPIClientAdapter
 from .cache_adapter import CacheDiskAdapter
 from .dependency_resolver_adapter import PipGripAdapter
@@ -12,7 +12,7 @@ from .clock_adapter import SystemClockAdapter
 from .report_adapter import FileReportSinkAdapter
 
 __all__ = [
-    "SnykCLIAdapter",
+    "OSVAdapter",
     "PyPIClientAdapter",
     "CacheDiskAdapter",
     "PipGripAdapter",

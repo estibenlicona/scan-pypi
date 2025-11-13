@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from src.domain.entities import (
     Package, PackageIdentifier, DependencyGraph, DependencyNode, 
-    Vulnerability, Policy, SeverityLevel, AnalysisResult
+    Vulnerability, Policy, SeverityLevel, AnalysisResult, License
 )
 
 
@@ -68,7 +68,6 @@ class PolicyEngine:
             if package.license and package.license.name:
                 if package.license.name in self.policy.blocked_licenses:
                     # Create new license with rejection flag
-                    from domain.entities import License
                     package.license = License(
                         name=package.license.name,
                         license_type=package.license.license_type,

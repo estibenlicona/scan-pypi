@@ -8,7 +8,7 @@ import os
 import subprocess
 import json
 import hashlib
-
+import re
 from pathlib import Path
 import time
 from typing import List, Dict, Any, cast
@@ -64,7 +64,6 @@ class PipGripAdapter(DependencyResolverPort):
             # Basic format validation - only allow exact versions (==) or no version
             # Should match: package-name, package-name==1.0.0
             # Should reject: package-name>=1.0, package-name~=1.0, etc.
-            import re
             exact_pattern = r'^[A-Za-z0-9_.-]+(?:==[A-Za-z0-9_.-]+)?$'
             range_pattern = r'^[A-Za-z0-9_.-]+[<>!~]'
             

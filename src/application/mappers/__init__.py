@@ -58,7 +58,11 @@ class DomainToDTOMapper:
             github_license=domain_package.github_license,
             dependencies=domain_package.dependencies,
             is_maintained=domain_package.is_maintained,
-            license_rejected=domain_package.license_rejected
+            license_rejected=domain_package.license_rejected,
+            aprobada=domain_package.aprobada,
+            motivo_rechazo=domain_package.motivo_rechazo,
+            dependencias_directas=domain_package.dependencias_directas,
+            dependencias_transitivas=domain_package.dependencias_transitivas
         )
     
     @staticmethod

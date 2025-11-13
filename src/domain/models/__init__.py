@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
-from src.domain.entities import SeverityLevel
+from src.domain.entities import SeverityLevel, DependencyInfo
 
 
 @dataclass(frozen=True)
@@ -28,9 +28,10 @@ class AnalysisRequest:
 
 @dataclass(frozen=True) 
 class PackageInfo:
-    """Domain model for package information."""
+    """Domain model for package information with approval status and dependency tracking."""
     name: str
     version: str
+    latest_version: Optional[str] = None  # Latest version available on PyPI
     license: Optional[str] = None
     upload_time: Optional[datetime] = None
     summary: Optional[str] = None
@@ -44,10 +45,14 @@ class PackageInfo:
     requires_dist: List[str] = field(default_factory=list)
     project_urls: dict[str, str] = field(default_factory=dict)
     github_url: Optional[str] = None
-    github_license: Optional[str] = None
-    dependencies: List[str] = field(default_factory=list)
+    dependencies: List[DependencyInfo] = field(default_factory=list)
     is_maintained: bool = False
     license_rejected: bool = False
+    # Business rule fields (calculated by domain services)
+    aprobada: str = "En verificación"  # "Sí", "No", "En verificación"
+    motivo_rechazo: Optional[str] = None  # Reason for rejection if aprobada="No"
+    dependencias_directas: List[DependencyInfo] = field(default_factory=list)  # Direct dependencies
+    dependencias_transitivas: List[DependencyInfo] = field(default_factory=list)  # Transitive/dev dependencies
     
     def __post_init__(self) -> None:
         """Strict business validation."""

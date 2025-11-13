@@ -4,7 +4,6 @@ Infrastructure configuration - Settings and configuration management.
 
 from .settings import (
     Settings,
-    SnykSettings,
     CacheSettings,
     LoggingSettings,
     PolicySettings,
@@ -16,7 +15,6 @@ from .settings import (
 
 __all__ = [
     "Settings",
-    "SnykSettings", 
     "CacheSettings", 
     "LoggingSettings",
     "PolicySettings",

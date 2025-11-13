@@ -35,9 +35,9 @@ class VulnerabilityscannerPort(ABC):
     """Port for scanning vulnerabilities using external tools."""
     
     @abstractmethod
-    async def scan_vulnerabilities(self, requirements_content: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    async def scan_vulnerabilities(self, requirements_content: str) -> Dict[str, Any]:
         """
-        Scan vulnerabilities and return dependencies and vulnerabilities data.
+        Scan vulnerabilities and return vulnerabilities data.
         
         Organization and other tool-specific configuration is handled internally
         by the adapter implementation, keeping the domain clean.
@@ -51,6 +51,11 @@ class MetadataProviderPort(ABC):
     @abstractmethod
     async def enrich_package_metadata(self, package: Package) -> Package:
         """Enrich package with additional metadata from external sources."""
+        pass
+    
+    @abstractmethod
+    async def fetch_latest_version(self, package_name: str) -> Optional[str]:
+        """Fetch the latest version of a package from PyPI."""
         pass
 
 

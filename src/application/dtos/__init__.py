@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import List, Optional, Dict, Any, TypedDict
 from dataclasses import dataclass, field
 from datetime import datetime
+from src.domain.entities import DependencyInfo
 
 
 # HTTP Request/Response DTOs - TypedDict for JSON payloads
@@ -74,6 +75,7 @@ class PackageDTO:
     """DTO for package information."""
     name: str
     version: str
+    latest_version: Optional[str] = None
     license: Optional[str] = None
     upload_time: Optional[datetime] = None
     summary: Optional[str] = None
@@ -88,9 +90,14 @@ class PackageDTO:
     project_urls: Dict[str, str] = field(default_factory=dict)
     github_url: Optional[str] = None
     github_license: Optional[str] = None
-    dependencies: List[str] = field(default_factory=list)
+    dependencies: List[DependencyInfo] = field(default_factory=list)
     is_maintained: bool = False
     license_rejected: bool = False
+    # Business rule fields (approval status tracking)
+    aprobada: str = "En verificación"  # "Sí", "No", "En verificación"
+    motivo_rechazo: Optional[str] = None  # Reason for rejection if aprobada="No"
+    dependencias_directas: List[DependencyInfo] = field(default_factory=list)  # Direct dependencies
+    dependencias_transitivas: List[DependencyInfo] = field(default_factory=list)  # Transitive/dev dependencies
 
 
 @dataclass(frozen=True)

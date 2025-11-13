@@ -13,7 +13,7 @@ from src.domain.ports import (
     CachePort, LoggerPort, ClockPort, ReportSinkPort
 )
 from src.infrastructure.adapters import (
-    LoggerAdapter, SnykCLIAdapter, PyPIClientAdapter, CacheDiskAdapter, 
+    LoggerAdapter, OSVAdapter, PyPIClientAdapter, CacheDiskAdapter, 
     PipGripAdapter, SystemClockAdapter, FileReportSinkAdapter
 )
 from src.infrastructure.config.settings import get_settings, Settings
@@ -73,8 +73,7 @@ class DependencyContainer:
     def vulnerability_scanner(self) -> VulnerabilityscannerPort:
         """Get or create vulnerability scanner adapter."""
         if self._vulnerability_scanner is None:
-            self._vulnerability_scanner = SnykCLIAdapter(
-                self.settings.snyk, 
+            self._vulnerability_scanner = OSVAdapter(
                 self.logger
             )
         return self._vulnerability_scanner

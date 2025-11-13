@@ -5,39 +5,12 @@ Reads from environment variables with defaults and validation.
 
 from __future__ import annotations
 import os
-import shutil
 from typing import Optional, List
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
-
-
-@dataclass(frozen=True)
-class SnykSettings:
-    """Snyk-specific configuration."""
-    org: str
-    path: str
-    timeout: int = 60
-    
-    @classmethod
-    def from_env(cls) -> SnykSettings:
-        """Create SnykSettings from environment variables."""
-        org = os.getenv("SNYK_ORG")
-        if not org:
-            raise RuntimeError("SNYK_ORG environment variable is required")
-        
-        # Find Snyk executable
-        snyk_path = shutil.which("snyk")
-        if not snyk_path:
-            raise RuntimeError("Snyk CLI not found in PATH")
-        
-        return cls(
-            org=org,
-            path=snyk_path,
-            timeout=int(os.getenv("SNYK_TIMEOUT", "60"))
-        )
 
 
 @dataclass(frozen=True)
@@ -86,6 +59,7 @@ class APISettings:
     """External API configuration."""
     pypi_base_url: str = "https://pypi.org/pypi"
     github_base_url: str = "https://api.github.com"
+    github_token: Optional[str] = None  # GitHub Personal Access Token for higher rate limits
     request_timeout: int = 10
     max_retries: int = 3
     
@@ -93,6 +67,7 @@ class APISettings:
     def from_env(cls) -> APISettings:
         """Create APISettings from environment variables."""
         return cls(
+            github_token=os.getenv("GITHUB_TOKEN"),  # Load from env if available
             pypi_base_url=os.getenv("PYPI_BASE_URL", "https://pypi.org/pypi"),
             github_base_url=os.getenv("GITHUB_BASE_URL", "https://api.github.com"),
             request_timeout=int(os.getenv("API_REQUEST_TIMEOUT", "10")),
@@ -135,7 +110,6 @@ class LoggingSettings:
 @dataclass(frozen=True)
 class Settings:
     """Complete application settings."""
-    snyk: SnykSettings
     cache: CacheSettings
     policy: PolicySettings
     api: APISettings
@@ -146,7 +120,6 @@ class Settings:
     def from_env(cls) -> Settings:
         """Create complete Settings from environment variables."""
         return cls(
-            snyk=SnykSettings.from_env(),
             cache=CacheSettings.from_env(),
             policy=PolicySettings.from_env(),
             api=APISettings.from_env(),

@@ -5,7 +5,7 @@ Domain entities - Pure business objects without external dependencies.
 from __future__ import annotations
 from typing import Optional, List, Dict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 
 
@@ -40,6 +40,14 @@ class PackageIdentifier:
     
     def __str__(self) -> str:
         return f"{self.name}@{self.version}"
+
+
+@dataclass(frozen=True)
+class DependencyInfo:
+    """Value object representing a package dependency with version information."""
+    name: str
+    version: str  # Exact version required
+    latest_version: Optional[str] = None  # Latest version available on PyPI
 
 
 @dataclass(frozen=True)
@@ -84,8 +92,8 @@ class Package:
     requires_dist: List[str] = field(default_factory=list)
     project_urls: Dict[str, str] = field(default_factory=dict)
     github_url: Optional[str] = None
-    github_license: Optional[str] = None
-    dependencies: List[PackageIdentifier] = field(default_factory=list)
+    latest_version: Optional[str] = None  # Latest version available on PyPI
+    dependencies: List[DependencyInfo] = field(default_factory=list)
     
     def __post_init__(self) -> None:
         pass  # Fields are initialized by field(default_factory)
@@ -105,7 +113,6 @@ class Package:
         if not self.upload_time:
             return False
         
-        from datetime import timezone, timedelta
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=years_threshold * 365)
         
         # Ensure upload_time has timezone info

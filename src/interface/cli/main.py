@@ -9,12 +9,31 @@ dependency injection are handled by other layers.
 from __future__ import annotations
 import asyncio
 import sys
+import re
+import argparse
 from typing import List
 from pathlib import Path
-import re
 
 from src.application.dtos import AnalysisRequest
 from src.application.bootstrap import ApplicationFactory
+from src.infrastructure.adapters.markdown_report_adapter import MarkdownReportAdapter
+from src.infrastructure.adapters.xlsx_report_adapter import XLSXReportAdapter
+from src.infrastructure.adapters.logger_adapter import LoggerAdapter
+from src.infrastructure.config.settings import LoggingSettings
+
+
+def generate_xlsx_only(report_path: str = "consolidated_report.json") -> None:
+    """Generate XLSX report from existing consolidated report."""
+    logging_settings = LoggingSettings()
+    logger = LoggerAdapter(logging_settings)
+    xlsx_adapter = XLSXReportAdapter(logger)
+
+    if xlsx_adapter.generate_xlsx(report_path, "packages.xlsx"):
+        print("[OK] XLSX report generated: packages.xlsx")
+        sys.exit(0)
+    else:
+        print("[ERROR] Failed to generate XLSX report", file=sys.stderr)
+        sys.exit(1)
 
 
 class RequirementsFileError(Exception):
@@ -75,7 +94,7 @@ def read_requirements_file(path: str | Path = "requirements.scan.txt") -> List[s
     return packages
 
 
-async def run_analysis(libraries: List[str]) -> None:
+async def run_analysis(libraries: List[str], generate_markdown: bool = False) -> None:
     """
     Run the complete package analysis pipeline.
     
@@ -84,6 +103,7 @@ async def run_analysis(libraries: List[str]) -> None:
     
     Args:
         libraries: List of libraries to analyze
+        generate_markdown: Whether to generate markdown report after analysis
         
     Raises:
         Exception: If analysis pipeline fails
@@ -99,16 +119,45 @@ async def run_analysis(libraries: List[str]) -> None:
         report = await orchestrator.run(request)
         
         # Present results to user (CLI responsibility)
-        print(f"✅ Analysis complete: {len(report.packages)} packages analyzed")
-        print(f"📊 Report saved to: {container.settings.report.output_path}")
+        print(f"[OK] Analysis complete: {len(report.packages)} packages analyzed")
+        print(f"[REPORT] Report saved to: {container.settings.report.output_path}")
+        
+        # Auto-generate XLSX report
+        xlsx_adapter = XLSXReportAdapter(container.logger)
+        if xlsx_adapter.generate_xlsx(container.settings.report.output_path, "packages.xlsx"):
+            print("[XLSX] Report generated: packages.xlsx")
+        
+        # Generate markdown if requested
+        if generate_markdown:
+            markdown_adapter = MarkdownReportAdapter(container.logger)
+            if markdown_adapter.generate_markdown(container.settings.report.output_path):
+                print("[OK] Markdown report generated: packages.md")
+            else:
+                print("[WARNING] Failed to generate Markdown report", file=sys.stderr)
         
     except Exception as e:
         # Handle and present errors appropriately for CLI
-        print(f"❌ Analysis failed: {e}", file=sys.stderr)
+        print(f"[ERROR] Analysis failed: {e}", file=sys.stderr)
         raise
     finally:
         # Clean up resources
         container.close()
+
+
+def generate_markdown_only(report_path: str = "consolidated_report.json") -> None:
+    """Generate markdown report from existing consolidated report."""
+    logging_settings = LoggingSettings()
+    logger = LoggerAdapter(logging_settings)
+    markdown_adapter = MarkdownReportAdapter(logger)
+    
+    if markdown_adapter.generate_markdown(report_path):
+        print("[OK] Markdown report generated: packages.md")
+        sys.exit(0)
+    else:
+        print("[ERROR] Failed to generate Markdown report", file=sys.stderr)
+        sys.exit(1)
+
+## CSV adapter removed
 
 
 def main() -> None:
@@ -118,23 +167,61 @@ def main() -> None:
     Handles only CLI orchestration: argument parsing, async execution,
     and error presentation. Follows Single Responsibility Principle.
     """
+    parser = argparse.ArgumentParser(
+        description="PyPI Package Analysis Tool - Analyze dependencies and generate reports"
+    )
+    parser.add_argument(
+        "--markdown",
+        action="store_true",
+        help="Generate Markdown report (packages.md) after analysis"
+    )
+    parser.add_argument(
+        "--markdown-only",
+        action="store_true",
+        help="Generate Markdown report from existing consolidated_report.json (no analysis)"
+    )
+## CSV adapter removed
+    parser.add_argument(
+        "--xlsx",
+        action="store_true",
+        help="Generate Excel report (packages.xlsx) from existing consolidated_report.json (no analysis)"
+    )
+    parser.add_argument(
+        "--report",
+        type=str,
+        default="consolidated_report.json",
+        help="Path to consolidated report (used with --markdown-only)"
+    )
+    
+    args = parser.parse_args()
+    
+    # Handle markdown-only mode
+    if args.markdown_only:
+        generate_markdown_only(args.report)
+        return
+    ## CSV adapter removed
+    # Handle xlsx-only mode
+    if args.xlsx:
+        generate_xlsx_only(args.report)
+        return
+    
     try:
         # Read libraries to analyze from requirements.scan.txt
         libraries = read_requirements_file()
 
         # Execute analysis pipeline
-        asyncio.run(run_analysis(libraries))
+        asyncio.run(run_analysis(libraries, generate_markdown=args.markdown))
 
     except KeyboardInterrupt:
         print("\n  Analysis interrupted by user")
         sys.exit(1)
 
     except RequirementsFileError as e:
-        print(f"❌ {e}", file=sys.stderr)
+        print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
 
     except Exception as e:
-        print(f" Error: {e}", file=sys.stderr)
+        print(f"[ERROR] Error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
