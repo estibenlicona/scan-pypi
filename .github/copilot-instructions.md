@@ -46,5 +46,26 @@ Este repositorio es un proyecto Python modular para análisis automatizado de de
 - Para agregar una nueva regla de negocio, extiende `business_rules.py` y actualiza el filtrado en `main.py`.
 - Para modificar el formato del reporte, ajusta la lógica de árbol en `report_utils.py`.
 
+---
+
+## Chat Style (Overrides Defaults)
+
+Estas reglas se aplican específicamente al comportamiento conversacional de GitHub Copilot Chat y los modelos avanzados (Claude, GPT-4, etc.):
+
+- **Modo principal:** Devuelve solo código o texto plano funcional.  
+  No generes explicaciones ni archivos Markdown a menos que el usuario lo solicite explícitamente.
+- **No documentación automática:**  
+  No crees `README.md`, `.md` de explicación, ni resúmenes automáticos.
+- **Confirmaciones concisas:**  
+  Al completar una tarea, responde con una confirmación breve (por ejemplo, “✅ Listo”) en lugar de explicar lo que hiciste.
+- **Formato de salida:**  
+  Cuando se requiera mostrar ejemplos o resultados, usa bloques de código simples (```` ```python ```` o ```` ```json ````) sin encabezados ni texto explicativo.
+- **Explicación bajo demanda:**  
+  Solo agrega comentarios o documentación si el usuario dice “explica”, “documenta”, o “resume”.
+- **Prioridad:**  
+  Estas reglas prevalecen sobre las instrucciones por defecto del modelo en cuanto a formato y nivel de detalle.
+
+---
+
 ## Referencias
 - Instrucciones avanzadas Copilot: https://docs.github.com/es/copilot/how-tos/configure-custom-instructions/add-repository-instructions

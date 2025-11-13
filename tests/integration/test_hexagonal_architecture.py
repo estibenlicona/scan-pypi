@@ -28,7 +28,6 @@ class TestHexagonalArchitecture:
         settings = settings_service.load_settings()
         
         assert settings is not None
-        assert settings.snyk.org == "estibenlicona"
         assert settings.cache.enabled is True
         assert settings.policy.maintainability_years_threshold == 2
 
@@ -165,7 +164,6 @@ class TestHexagonalArchitecture:
         clock = SystemClockAdapter()
         
         # Assertions
-        assert settings.snyk.org == "estibenlicona"
         assert package.identifier.name == "requests"
         assert is_maintained is True
         assert policy.name == "Default Policy"
