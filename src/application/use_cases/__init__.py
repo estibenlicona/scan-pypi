@@ -20,6 +20,9 @@ from src.domain.ports import (
     DependencyResolverPort, VulnerabilityscannerPort, MetadataProviderPort,
     CachePort, ReportSinkPort, LoggerPort
 )
+from src.domain.services.license_validator import LicenseValidator
+from src.infrastructure.config.settings import PolicySettings
+
 class AnalyzePackagesUseCase:
     """Use case for analyzing packages with dependencies and vulnerabilities."""
     
@@ -29,13 +32,15 @@ class AnalyzePackagesUseCase:
         vulnerability_scanner: VulnerabilityscannerPort,
         metadata_provider: MetadataProviderPort,
         cache: CachePort,
-        logger: LoggerPort
+        logger: LoggerPort,
+        policy_settings: PolicySettings | None = None
     ) -> None:
         self.dependency_resolver = dependency_resolver
         self.vulnerability_scanner = vulnerability_scanner
         self.metadata_provider = metadata_provider
         self.cache = cache
         self.logger = logger
+        self.policy_settings = policy_settings or PolicySettings.from_env()
         self.approval_map = {}  # Store approval info for use in DTOs
         self._last_result: AnalysisResult | None = None  # Keep last domain result
     
@@ -54,7 +59,7 @@ class AnalyzePackagesUseCase:
             self.logger.debug(f"Built dependencies map with {len(dependencies_map)} packages")
             
             # Step 2: Scan vulnerabilities
-            # We need to convert the graph to requirements format for scanning
+            self.logger.debug("Scanning packages for vulnerabilities")
             requirements_content = self._graph_to_requirements(dependency_graph)
             vuln_data = await self.vulnerability_scanner.scan_vulnerabilities(
                 requirements_content
@@ -71,6 +76,26 @@ class AnalyzePackagesUseCase:
             )
             
             self.logger.info(f"Enriched {len(enriched_packages)} packages with metadata")
+            
+            # Step 4b: Apply license blocking policy BEFORE creating PackageInfo
+            max_sev = None
+            if self.policy_settings.max_vulnerability_severity:
+                try:
+                    max_sev = SeverityLevel(self.policy_settings.max_vulnerability_severity.lower())
+                except (ValueError, AttributeError):
+                    max_sev = None
+            
+            policy = Policy(
+                name="default",
+                description="Default analysis policy",
+                maintainability_years_threshold=self.policy_settings.maintainability_years_threshold,
+                blocked_licenses=self.policy_settings.blocked_licenses,
+                max_vulnerability_severity=max_sev
+            )
+            
+            policy_engine = PolicyEngine(policy)
+            enriched_packages = policy_engine.evaluate_licenses(enriched_packages)
+            self.logger.info("Applied license blocking policy")
             
             # Step 5: Apply approval engine business rules
             # Convert Vulnerability entities to VulnerabilityInfo domain models
@@ -97,9 +122,12 @@ class AnalyzePackagesUseCase:
                 # Extract license using proper cascading: license → classifiers → github_license → None
                 extracted_license = self._extract_license_cascade(pkg)
                 
+                # Use the resolved version (each package@version is independent)
+                pkg_version = pkg.identifier.version
+                
                 package_info = PackageInfo(
                     name=pkg.identifier.name,
-                    version=pkg.identifier.version,
+                    version=pkg_version,
                     latest_version=pkg.latest_version,
                     license=extracted_license,
                     upload_time=pkg.upload_time,
@@ -136,25 +164,16 @@ class AnalyzePackagesUseCase:
             )
             self.logger.info("Enriched dependencies with latest version information")
             
-            # Create a mapping of package name to approval info for quick lookup
-            self.approval_map = {pkg.name: pkg for pkg in enriched_approved_packages}
+            # Create a mapping of package identifier (name@version) to approval info for quick lookup
+            # Each package@version combination must be looked up independently
+            self.approval_map = {f"{pkg.name}@{pkg.version}": pkg for pkg in enriched_approved_packages}
             
-            # Step 6: Apply business policies
-            policy = Policy(
-                name="default",
-                description="Default analysis policy",
-                maintainability_years_threshold=2,
-                blocked_licenses=[],
-                max_vulnerability_severity=None
-            )
-            
-            policy_engine = PolicyEngine(policy)
+            # Step 6: Build result (policy already applied earlier)
             maintained_packages = policy_engine.filter_maintained_packages(enriched_packages)
             evaluated_vulns = policy_engine.evaluate_vulnerabilities(vulnerabilities)
             
             self.logger.info(f"Policy filtered to {len(maintained_packages)} maintained packages")
             
-            # Step 6: Build result
             graph_builder = GraphBuilder()
             updated_graph = graph_builder.merge_package_data_into_graph(dependency_graph, enriched_packages)
             report_builder = ReportBuilder()
@@ -165,7 +184,6 @@ class AnalyzePackagesUseCase:
             # Store domain result and convert to DTO
             self._last_result = result
             return self._to_dto(result)
-            return self._to_dto(result)
             
         except Exception as e:
             self.logger.error("Analysis failed", error=str(e))
@@ -173,32 +191,39 @@ class AnalyzePackagesUseCase:
     
     def _extract_license_cascade(self, pkg: Package) -> str | None:
         """
-        Extract license using 3-level cascade:
-        1. pkg.license.name (from PyPI 'license' field)
-        2. Classifiers (License :: classifiers)
-        3. None if not found anywhere
-        """
-        # Level 1: Direct license field
-        if pkg.license and pkg.license.name:
-            return pkg.license.name
+        Extract license using advanced cascade with VALIDATION:
+        1. pkg.license.name (from PyPI 'license' field) - extract and validate
+        2. Classifiers (License :: classifiers) - extract and validate
+        3. None if no valid license found anywhere
         
-        # Level 2: Classifiers - look for License :: ... lines
+        Uses regex patterns and heuristics to detect licenses.
+        Only returns licenses that are recognized by the validator.
+        """
+        # Level 1: Direct license field - try to extract with validation
+        if pkg.license and pkg.license.name:
+            license_name = pkg.license.name.strip()
+            extracted = LicenseValidator.extract_license(license_name)
+            if extracted:
+                return extracted
+        
+        # Level 2: Classifiers - extract and validate
         if pkg.classifiers:
             license_classifiers = [
                 c for c in pkg.classifiers 
                 if c.startswith("License ::")
             ]
             if license_classifiers:
-                # Extract the license name from first matching classifier
-                # Format: "License :: OSI Approved :: MIT License"
-                classifier = license_classifiers[0]
-                parts = classifier.split(" :: ")
-                if len(parts) >= 3:
-                    return parts[-1]
+                # Extract from each classifier until we find a valid license
+                for classifier in license_classifiers:
+                    license_name = LicenseValidator.extract_from_classifier(classifier)
+                    if license_name:
+                        extracted = LicenseValidator.extract_license(license_name)
+                        if extracted:
+                            return extracted
         
-        # Level 3: Not found
+        # Level 3: No valid license found
         self.logger.debug(
-            f"License not found in cascade for {pkg.identifier.name}@{pkg.identifier.version}",
+            f"No valid license found in cascade for {pkg.identifier.name}@{pkg.identifier.version}",
             has_license_obj=pkg.license is not None,
             has_classifiers=len(pkg.classifiers or []) > 0
         )
@@ -277,18 +302,30 @@ class AnalyzePackagesUseCase:
         
         vulnerabilities_map = vuln_data.get("vulnerabilities", {})
         
+        self.logger.debug(f"Extracting vulnerabilities from map with {len(vulnerabilities_map)} entries")
+        
         # OSV returns vulnerabilities grouped by package@version
         for package_version_key, vulns_list in vulnerabilities_map.items():
+            self.logger.debug(f"Processing key: '{package_version_key}' with {len(vulns_list) if vulns_list else 0} vulns")
+            
             # Parse package@version format
             parts = package_version_key.split("@")
             if len(parts) != 2:
+                self.logger.debug(f"Skipping invalid key format: {package_version_key}")
                 continue
             
             package_name, version = parts[0], parts[1]
+            self.logger.debug(f"  Parsed as: package={package_name}, version={version}")
             
             for vuln in vulns_list:
                 try:
-                    # Extract severity from OSV format
+                    # OSV batch endpoint returns minimal data (just id and modified)
+                    vuln_id = vuln.get("id", "").strip()
+                    if not vuln_id:
+                        self.logger.debug("Skipping vulnerability without ID")
+                        continue
+                    
+                    # Extract severity from OSV format (may not be available in batch response)
                     severity_str = vuln.get("database_specific", {}).get("severity", "low").lower()
                     severity = SeverityLevel.LOW  # default
                     
@@ -299,17 +336,26 @@ class AnalyzePackagesUseCase:
                     elif severity_str == "critical":
                         severity = SeverityLevel.CRITICAL
                     
+                    # Ensure all required fields have non-empty values
+                    pkg_name = (package_name or "unknown").strip() or "unknown"
+                    ver = (version or "unknown").strip() or "unknown"
+                    title = (vuln.get("summary") or f"Vulnerability {vuln_id}").strip() or f"Vulnerability {vuln_id}"
+                    desc = (vuln.get("details") or "Check OSV for details").strip() or "Check OSV for details"
+                    
+                    # For batch responses, we may have minimal info - that's OK
+                    # The presence in OSV is enough to indicate a known vulnerability
                     vulnerability = Vulnerability(
-                        id=vuln.get("id", ""),
-                        title=vuln.get("summary", ""),
-                        description=vuln.get("details"),
+                        id=vuln_id,
+                        title=title,
+                        description=desc,
                         severity=severity,
-                        package_name=package_name,
-                        version=version
+                        package_name=pkg_name,
+                        version=ver
                     )
                     vulnerabilities.append(vulnerability)
-                except (ValueError, KeyError) as e:
-                    self.logger.warning(f"Failed to parse OSV vulnerability: {e}")
+                    self.logger.debug(f"Found vulnerability {vuln_id} in {pkg_name}@{ver}")
+                except (ValueError, KeyError, TypeError) as e:
+                    self.logger.debug(f"Failed to parse OSV vulnerability {vuln.get('id', 'unknown')}: {e}")
                     continue
         
         return vulnerabilities
@@ -462,9 +508,11 @@ class AnalyzePackagesUseCase:
     def _package_to_dto(self, package: Package) -> PackageDTO:
         """Convert domain package to DTO, enriched with approval info."""
         pkg_name = package.identifier.name
+        pkg_version = package.identifier.version
         
-        # Get approval info if available
-        approval_info = self.approval_map.get(pkg_name)
+        # Get approval info if available - lookup by full package@version identifier
+        pkg_key = f"{pkg_name}@{pkg_version}"
+        approval_info = self.approval_map.get(pkg_key)
         
         aprobada = approval_info.aprobada if approval_info else "En verificación"
         motivo_rechazo = approval_info.motivo_rechazo if approval_info else None
@@ -472,11 +520,14 @@ class AnalyzePackagesUseCase:
         dependencias_transitivas = approval_info.dependencias_transitivas if approval_info else []
         dependencias_rechazadas = approval_info.dependencias_rechazadas if approval_info else []
         
+        # Use cascading license extraction for reliable license info
+        license_name = self._extract_license_cascade(package)
+        
         return PackageDTO(
             name=package.identifier.name,
             version=package.identifier.version,
             latest_version=package.latest_version,
-            license=package.license.name if package.license else None,
+            license=license_name,
             upload_time=package.upload_time,
             summary=package.summary,
             home_page=package.home_page,

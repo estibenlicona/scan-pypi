@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import List, Optional, Dict, Tuple
 from src.domain.models import PackageInfo, VulnerabilityInfo
 from src.domain.entities import DependencyInfo
+from src.domain.services.license_validator import LicenseValidator
 
 
 class ApprovalEngine:
@@ -45,10 +46,8 @@ class ApprovalEngine:
         missing_critical: List[str] = []  # Critical data that's missing
         missing_secondary: List[str] = []  # Secondary data that's missing (just warnings)
         
-        # CRÍTICO: Licencia es dato importante
-        # Check if license exists and is not empty/whitespace
-        if not (package.license and package.license.strip()):
-            missing_critical.append("Falta Licencia")
+        # NOTE: License is now handled as a rejection reason (see Rule 1 below)
+        # It's no longer just a warning
         
         # SECUNDARIO: URL y fecha son útiles pero no críticas
         if not package.home_page and not package.github_url:
@@ -65,36 +64,63 @@ class ApprovalEngine:
         
         # Single missing data point becomes warning
         for item in missing_critical:
-            warnings.append(f"⚠ {item}")
+            warnings.append(item)
         
         # Add secondary missing data as warnings too
         for item in missing_secondary:
-            warnings.append(f"⚠ {item}")
+            warnings.append(item)
         
         # Check individual package rules (these DO block approval)
         rejection_reasons: List[str] = []
         
-        # Rule 1: license must not be rejected
+        # Get direct dependencies EARLY (needed for all outcomes)
+        direct_deps = dependencies_map.get(package.name, [])
+        
+        # Rule 1: License MUST exist and be valid
+        # First check if license exists (not None or empty/whitespace)
+        has_license = package.license and package.license.strip()
+        
+        if not has_license:
+            # Missing license is a rejection reason, not just a warning
+            rejection_reasons.append("Falta Licencia")
+        else:
+            # License exists, now check if it's valid
+            license_is_valid = LicenseValidator.is_valid_license(package.license)
+            if not license_is_valid:
+                rejection_reasons.append("Licencia no válida o no reconocida")
+        
+        # Rule 2: if license is explicitly rejected by policy
         if package.license_rejected:
-            rejection_reasons.append("Licencia rechazada")
+            rejection_reasons.append("Licencia rechazada por política")
         
         # Rule 2: package should be maintained (validated only by upload_time, >= 2 years)
         if not package.is_maintained:
             rejection_reasons.append("Sin mantenimiento (última actualización > 2 años)")
         
-        # Rule 3: no vulnerabilities
-        pkg_vulnerabilities = [v for v in vulnerabilities if v.package_name == package.name]
+        # Rule 3: no vulnerabilities for this specific version
+        # Check if this exact package version has any reported vulnerabilities
+        pkg_vulnerabilities = [
+            v for v in vulnerabilities 
+            if v.package_name.lower() == package.name.lower() and v.version == package.version
+        ]
+        
         if pkg_vulnerabilities:
             rejection_reasons.append(f"Contiene {len(pkg_vulnerabilities)} vulnerabilidad(es)")
         
-        # If individual rules are violated, package is rejected
+        # If individual rules are violated, package is rejected but show its dependencies
         if rejection_reasons:
+            # Combine and deduplicate reasons
             all_reasons = rejection_reasons + warnings
-            motivo = "; ".join(all_reasons)
-            return ("No", motivo, [], [], [])
-        
-        # Get direct dependencies for this package
-        direct_deps = dependencies_map.get(package.name, [])
+            unique_reasons = []
+            seen_reasons = set()
+            for reason in all_reasons:
+                if reason.lower() not in seen_reasons:
+                    unique_reasons.append(reason)
+                    seen_reasons.add(reason.lower())
+            motivo = ", ".join(unique_reasons)
+            # Calculate dependencies even for rejected packages so user can see what they depend on
+            transitive_deps = self._get_transitive_dependencies(package.name, dependencies_map, direct_deps)
+            return ("No", motivo, direct_deps, transitive_deps, [])
         
         # Rule 4: Check if ANY dependency (direct or transitive) is rejected
         # Collect all rejected dependencies recursively
@@ -125,8 +151,15 @@ class ApprovalEngine:
         collect_rejected_deps(package.name)
         
         if rejected_dep_names:
-            all_reasons = ["Dependencias rechazadas"] + warnings
-            motivo = "; ".join(all_reasons)
+            # Combine and deduplicate reasons
+            all_reasons_list = ["Dependencias rechazadas"] + warnings
+            unique_reasons_list = []
+            seen_reasons_set = set()
+            for reason in all_reasons_list:
+                if reason.lower() not in seen_reasons_set:
+                    unique_reasons_list.append(reason)
+                    seen_reasons_set.add(reason.lower())
+            motivo = ", ".join(unique_reasons_list)
             # Calculate transitive dependencies even for rejected packages
             transitive_deps = self._get_transitive_dependencies(package.name, dependencies_map, direct_deps)
             return ("No", motivo, direct_deps, transitive_deps, rejected_dep_names)
@@ -141,7 +174,7 @@ class ApprovalEngine:
         # Include warnings in approval message if any
         motivo_final = None
         if warnings:
-            motivo_final = "; ".join(warnings)
+            motivo_final = ", ".join(warnings)
         
         # Return: (aprobada, motivo, direct_deps, transitive_deps, dependencias_rechazadas)
         return ("Sí", motivo_final, direct_dep_names, transitive_deps, [])

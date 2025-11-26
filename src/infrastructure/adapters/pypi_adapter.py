@@ -12,7 +12,9 @@ from datetime import datetime
 
 from src.domain.entities import Package, License, LicenseType
 from src.domain.ports import MetadataProviderPort, LoggerPort
+from src.domain.services.license_validator import LicenseValidator
 from src.infrastructure.config.settings import APISettings
+from src.infrastructure.utilities.retry_policy import RetryPolicy
 
 
 class PyPIClientAdapter(MetadataProviderPort):
@@ -21,6 +23,13 @@ class PyPIClientAdapter(MetadataProviderPort):
     def __init__(self, settings: APISettings, logger: LoggerPort) -> None:
         self.settings = settings
         self.logger = logger
+        # Initialize retry policy for resilient API calls
+        self.retry_policy = RetryPolicy(
+            max_retries=3,
+            base_delay_seconds=1.0,
+            max_delay_seconds=30.0,
+            logger=logger
+        )
     
     # --- Helper normalization utilities ---------------------------------
     def _safe_str(self, value: TypingAny) -> Optional[str]:
@@ -115,48 +124,55 @@ class PyPIClientAdapter(MetadataProviderPort):
             return package  # Return original package if enrichment fails
     
     async def _fetch_pypi_metadata(self, package_name: str, version: str) -> Optional[Dict[str, Any]]:
-        """Fetch metadata from PyPI API.
+        """Fetch metadata from PyPI API with automatic retries.
         
         Tries to fetch specific version first, falls back to latest version if not found.
+        Uses retry policy to handle timeouts and transient failures.
         """
-        # First, try to fetch the specific version
-        url = f"{self.settings.pypi_base_url}/{package_name}/{version}/json"
+        # Helper function to fetch with retry
+        async def fetch_with_retry() -> Optional[Dict[str, Any]]:
+            # First, try to fetch the specific version
+            url = f"{self.settings.pypi_base_url}/{package_name}/{version}/json"
+            
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)) as session:
+                try:
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            return await response.json()
+                        elif response.status == 404:
+                            # Specific version not found, try fetching latest version metadata
+                            self.logger.debug(f"Specific version {package_name}@{version} not found, trying latest")
+                            url_latest = f"{self.settings.pypi_base_url}/{package_name}/json"
+                            async with session.get(url_latest) as response_latest:
+                                if response_latest.status == 200:
+                                    return await response_latest.json()
+                                else:
+                                    self.logger.debug(f"PyPI API returned {response_latest.status} for {package_name} (may be unpublished or pre-release)")
+                                    return None
+                        else:
+                            self.logger.debug(f"PyPI API returned {response.status} for {package_name}@{version}")
+                            return None
+                except asyncio.TimeoutError:
+                    self.logger.debug(f"Timeout fetching {package_name}@{version}")
+                    raise
         
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)) as session:
-            try:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    elif response.status == 404:
-                        # Specific version not found, try fetching latest version metadata
-                        self.logger.debug(f"Specific version {package_name}@{version} not found, trying latest")
-                        url_latest = f"{self.settings.pypi_base_url}/{package_name}/json"
-                        async with session.get(url_latest) as response_latest:
-                            if response_latest.status == 200:
-                                return await response_latest.json()
-                            else:
-                                self.logger.debug(f"PyPI API returned {response_latest.status} for {package_name} (may be unpublished or pre-release)")
-                                return None
-                    else:
-                        self.logger.debug(f"PyPI API returned {response.status} for {package_name}@{version}")
-                        return None
-            except asyncio.TimeoutError:
-                self.logger.debug(f"Timeout fetching PyPI data for {package_name}@{version}")
-                return None
-            except Exception as e:
-                self.logger.debug(f"Error fetching PyPI data for {package_name}@{version}: {e}")
-                return None
+        # Apply retry policy
+        try:
+            return await self.retry_policy.execute(fetch_with_retry)
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch {package_name}@{version} after retries: {e}")
+            return None
     
     async def fetch_latest_version(self, package_name: str) -> Optional[str]:
         """Public method to fetch latest version of a package from PyPI."""
         return await self._fetch_latest_version(package_name)
     
     async def _fetch_latest_version(self, package_name: str) -> Optional[str]:
-        """Fetch the latest version of a package from PyPI."""
-        url = f"{self.settings.pypi_base_url}/{package_name}/json"
-        
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)) as session:
-            try:
+        """Fetch the latest version of a package from PyPI with automatic retries."""
+        async def fetch_with_retry() -> Optional[str]:
+            url = f"{self.settings.pypi_base_url}/{package_name}/json"
+            
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)) as session:
                 async with session.get(url) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -165,15 +181,16 @@ class PyPIClientAdapter(MetadataProviderPort):
                     else:
                         self.logger.debug(f"PyPI API returned {response.status} for {package_name} (may be pre-release or local version)")
                         return None
-            except asyncio.TimeoutError:
-                self.logger.debug(f"Timeout fetching latest version for {package_name}")
-                return None
-            except Exception as e:
-                self.logger.debug(f"Error fetching latest version for {package_name}: {e}")
-                return None
+        
+        # Apply retry policy
+        try:
+            return await self.retry_policy.execute(fetch_with_retry)
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch latest version for {package_name} after retries: {e}")
+            return None
     
     async def _fetch_github_metadata(self, github_url: str) -> Optional[Dict[str, Any]]:
-        """Fetch metadata from GitHub API with authentication support."""
+        """Fetch metadata from GitHub API with authentication support and automatic retries."""
         # Extract repo info from GitHub URL
         repo_match = re.match(r'https://github\.com/([^/]+)/([^/]+)', github_url)
         if not repo_match:
@@ -192,13 +209,13 @@ class PyPIClientAdapter(MetadataProviderPort):
         if self.settings.github_token:
             headers["Authorization"] = f"Bearer {self.settings.github_token}"
         
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)) as session:
-            try:
+        async def fetch_with_retry() -> Optional[Dict[str, Any]]:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)) as session:
                 async with session.get(api_url, headers=headers) as response:
                     if response.status == 200:
                         return await response.json()
                     elif response.status == 403:
-                        # Rate limit exceeded
+                        # Rate limit exceeded - do not retry for this error
                         remaining = response.headers.get("X-RateLimit-Remaining", "0")
                         reset_timestamp = response.headers.get("X-RateLimit-Reset", "unknown")
                         self.logger.warning(
@@ -206,15 +223,20 @@ class PyPIClientAdapter(MetadataProviderPort):
                             f"Remaining: {remaining}, Reset: {reset_timestamp}"
                         )
                         return None
+                    elif response.status == 404:
+                        # Repository not found - do not retry
+                        self.logger.warning(f"GitHub repository not found: {owner}/{repo}")
+                        return None
                     else:
                         self.logger.warning(f"GitHub API returned {response.status} for {owner}/{repo}")
                         return None
-            except asyncio.TimeoutError:
-                self.logger.warning(f"Timeout fetching GitHub data for {owner}/{repo}")
-                return None
-            except Exception as e:
-                self.logger.warning(f"Error fetching GitHub data for {owner}/{repo}: {e}")
-                return None
+        
+        # Apply retry policy
+        try:
+            return await self.retry_policy.execute(fetch_with_retry)
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch GitHub data for {owner}/{repo} after retries: {e}")
+            return None
     
     def _merge_pypi_data(self, package: Package, pypi_data: Dict[str, Any]) -> Package:
         """Merge PyPI data into package."""
@@ -223,36 +245,11 @@ class PyPIClientAdapter(MetadataProviderPort):
             self.logger.warning(f"Invalid 'info' structure from PyPI for {package.identifier}: got {type(info)}")
             return package
         
-        # Parse license information
-        license_name = info.get("license")
-        license_type = None
-        license_obj = None
-        
-        # Normalize and extract license name
-        license_name = self._safe_str(license_name)  # Clean up whitespace
-        
-        # If license is empty, try license_expression as fallback
-        if not license_name:
-            license_expression = info.get("license_expression")
-            license_name = self._safe_str(license_expression)
-        
-        # If still empty, try to extract from classifiers
-        if not license_name:
-            classifiers = info.get("classifiers", [])
-            if isinstance(classifiers, list):
-                for classifier in classifiers:
-                    if isinstance(classifier, str) and "License ::" in classifier:
-                        # Extract license name from classifier like "License :: OSI Approved :: BSD License"
-                        parts = classifier.split("::")
-                        if len(parts) >= 3:
-                            license_name = parts[-1].strip()
-                            break
-        
-        # Extract proper license name from full text if necessary
-        if license_name:
-            license_name = self._extract_license_name_from_text(license_name)
-            license_type = self._parse_license_type(license_name)
-            license_obj = License(name=license_name, license_type=license_type)
+        # Extract license using LicenseValidator (encapsulates all logic)
+        license_obj = LicenseValidator.extract_license_from_sources(
+            pypi_info=info,
+            github_data=None  # GitHub data merged separately
+        )
         
         # Parse upload time
         upload_time = None
@@ -300,36 +297,21 @@ class PyPIClientAdapter(MetadataProviderPort):
         )
     
     def _merge_github_data(self, package: Package, github_data: Dict[str, Any]) -> Package:
-        """Merge GitHub data into package."""
-        # Extract license from GitHub: try 'key' (SPDX) then 'name' as fallback
-        github_license_str = None
-        if "license" in github_data:
-            license_obj = github_data.get("license")
-            if isinstance(license_obj, dict) and license_obj:
-                # Try SPDX identifier first (e.g., "mit", "apache-2.0")
-                github_license_str = license_obj.get("key")
-                # Fallback to full name if key not available (e.g., "MIT License")
-                if not github_license_str:
-                    github_license_str = license_obj.get("name")
-        
-        # Normalize license to string or None
-        github_license_str = self._safe_str(github_license_str)
-        
-        # Normalize SPDX license format (lowercase → proper case)
-        if github_license_str:
-            github_license_str = self._normalize_spdx_license(github_license_str)
-        
-        # Determine final license: use package.license if available, else create from github_license_str
+        """Merge GitHub data into package (currently used for license fallback only)."""
+        # Use LicenseValidator to extract license from GitHub if PyPI license is missing
         final_license = package.license
-        if final_license is None and github_license_str:
-            # Create License object from GitHub data if PyPI license was not found
-            final_license = License(
-                name=github_license_str,
-                license_type=self._parse_license_type(github_license_str)
-            )
         
-        # Create updated package
-        result = Package(
+        # Only try GitHub if PyPI didn't provide a valid license
+        if final_license is None:
+            github_license = LicenseValidator.extract_license_from_sources(
+                pypi_info=None,
+                github_data=github_data
+            )
+            if github_license:
+                final_license = github_license
+        
+        # Return updated package with merged GitHub data
+        return Package(
             identifier=package.identifier,
             license=final_license,
             upload_time=package.upload_time,
@@ -344,11 +326,9 @@ class PyPIClientAdapter(MetadataProviderPort):
             requires_dist=package.requires_dist,
             project_urls=package.project_urls,
             github_url=package.github_url,
-            latest_version=package.latest_version,  # Preserve latest_version
+            latest_version=package.latest_version,
             dependencies=package.dependencies
         )
-
-        return result
     
     def _extract_github_url(self, info: Dict[str, Any]) -> Optional[str]:
         """Extract GitHub URL from package info."""

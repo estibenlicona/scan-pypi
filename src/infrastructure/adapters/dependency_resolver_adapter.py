@@ -142,17 +142,45 @@ class PipGripAdapter(DependencyResolverPort):
     
     def _generate_package_cache_key(self, package: str) -> str:
         """
-        Generate cache key for individual package.
+        Generate cache key for individual package using package name and version.
+        
+        The key is generated from the normalized package name and version (if present).
+        This ensures accurate cache hits for specific package versions.
         
         Args:
-            package: Package name (e.g., 'requests', 'flask==2.0.1')
+            package: Package specification (e.g., 'requests', 'flask==2.0.1')
             
         Returns:
-            Cache key for the specific package
+            SHA256 hash of the package@version combination
+            
+        Examples:
+            'requests' -> SHA256(requests@latest)
+            'flask==2.0.1' -> SHA256(flask@2.0.1)
         """
-        # Normalize package name and add prefix for namespacing
-        normalized_package = package.strip().lower()
-        key_data = f"pkg:{normalized_package}".encode('utf-8')
+        # Extract package name and version
+        package_normalized = package.strip().lower()
+        
+        # Parse package name and version from specification
+        # Format can be: "package", "package==version", "package>=version", etc.
+        parts = package_normalized.split("==")
+        if len(parts) == 2:
+            pkg_name, pkg_version = parts[0].strip(), parts[1].strip()
+        else:
+            # Handle other version specifiers (>=, <=, ~=, etc.)
+            for op in [">=", "<=", "~=", ">", "<", "!="]:
+                if op in package_normalized:
+                    idx = package_normalized.index(op)
+                    pkg_name = package_normalized[:idx].strip()
+                    pkg_version = package_normalized[idx:].strip()
+                    break
+            else:
+                # No version specifier found
+                pkg_name = package_normalized
+                pkg_version = "latest"
+        
+        # Generate cache key from package name and version
+        # Format: "pkg:{name}@{version}"
+        key_data = f"pkg:{pkg_name}@{pkg_version}".encode('utf-8')
         return hashlib.sha256(key_data).hexdigest()
     
     async def _resolve_and_cache_package(self, package: str) -> Dict[str, Any]:

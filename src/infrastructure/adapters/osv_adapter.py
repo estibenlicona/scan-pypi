@@ -93,25 +93,29 @@ class OSVAdapter(VulnerabilityscannerPort):
         """
         vulnerabilities_map: Dict[str, List[Dict[str, Any]]] = {}
         
-        # Build initial batch payload
+        # Build initial batch with package indices to track position
+        # Each query maintains its original index for result mapping
+        query_indices = list(range(len(packages)))
+        
         queries = [
             {
                 "package": {
-                    "name": package_name,
+                    "name": packages[idx][0],
                     "ecosystem": "PyPI"
                 },
-                "version": version
+                "version": packages[idx][1]
             }
-            for package_name, version in packages
+            for idx in query_indices
         ]
         
         # Process batch with pagination handling
-        next_page_tokens: Dict[int, str] = {}
+        next_page_tokens: Dict[int, str] = {}  # Maps original package index to page token
         
         while True:
             # Update queries with page tokens if present
-            for idx, token in next_page_tokens.items():
-                queries[idx]["page_token"] = token
+            for query_pos, original_idx in enumerate(query_indices):
+                if original_idx in next_page_tokens:
+                    queries[query_pos]["page_token"] = next_page_tokens[original_idx]
             
             payload = {"queries": queries}
             
@@ -120,10 +124,16 @@ class OSVAdapter(VulnerabilityscannerPort):
                     if response.status == 200:
                         data = await response.json()
                         
-                        # Process results
-                        for idx, result in enumerate(data.get("queries", [])):
-                            package_name = packages[idx][0]
-                            version = packages[idx][1]
+                        # Process results - position in results matches position in queries
+                        results = data.get("results", [])
+                        for query_pos, result in enumerate(results):
+                            if query_pos >= len(query_indices):
+                                break
+                            
+                            # Map back to original package index
+                            original_idx = query_indices[query_pos]
+                            package_name = packages[original_idx][0]
+                            version = packages[original_idx][1]
                             key = f"{package_name}@{version}"
                             
                             vulns = result.get("vulns", [])
@@ -134,9 +144,9 @@ class OSVAdapter(VulnerabilityscannerPort):
                             
                             # Check for pagination
                             if result.get("page_token"):
-                                next_page_tokens[idx] = result["page_token"]
-                            elif idx in next_page_tokens:
-                                del next_page_tokens[idx]
+                                next_page_tokens[original_idx] = result["page_token"]
+                            elif original_idx in next_page_tokens:
+                                del next_page_tokens[original_idx]
                             
                             if vulns:
                                 self.logger.debug(
@@ -148,7 +158,8 @@ class OSVAdapter(VulnerabilityscannerPort):
                             break
                         
                         # Prepare for next batch of paginated results
-                        # Keep only paginated queries
+                        # Keep only paginated queries (with their indices)
+                        query_indices = list(next_page_tokens.keys())
                         queries = [
                             {
                                 "package": {
@@ -157,7 +168,7 @@ class OSVAdapter(VulnerabilityscannerPort):
                                 },
                                 "version": packages[idx][1]
                             }
-                            for idx in next_page_tokens.keys()
+                            for idx in query_indices
                         ]
                     else:
                         self.logger.warning(

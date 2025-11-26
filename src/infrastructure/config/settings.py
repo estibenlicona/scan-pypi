@@ -115,6 +115,7 @@ class Settings:
     api: APISettings
     report: ReportSettings
     logging: LoggingSettings
+    dependency_resolver_type: str = "uv"  # "uv" or "pipgrip"
     
     @classmethod
     def from_env(cls) -> Settings:
@@ -124,7 +125,8 @@ class Settings:
             policy=PolicySettings.from_env(),
             api=APISettings.from_env(),
             report=ReportSettings.from_env(),
-            logging=LoggingSettings.from_env()
+            logging=LoggingSettings.from_env(),
+            dependency_resolver_type=os.getenv("DEPENDENCY_RESOLVER", "uv").lower()
         )
 
 

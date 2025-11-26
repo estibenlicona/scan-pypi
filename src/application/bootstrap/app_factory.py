@@ -41,7 +41,8 @@ class ApplicationFactory:
             vulnerability_scanner=self.container.vulnerability_scanner,
             metadata_provider=self.container.metadata_provider,
             cache=self.container.cache,
-            logger=self.container.logger
+            logger=self.container.logger,
+            policy_settings=self.container.settings.policy
         )
     
     def create_report_use_case(self) -> BuildConsolidatedReportUseCase:

@@ -71,8 +71,10 @@ class Vulnerability:
     license: Optional[License] = None
     
     def __post_init__(self) -> None:
-        if not self.id or not self.title or not self.package_name or not self.version:
-            raise ValueError("Required vulnerability fields cannot be empty")
+        # Only require ID and package_name/version to be non-empty
+        # Title and description can be generated/placeholder values
+        if not self.id or not self.package_name or not self.version:
+            raise ValueError("Required vulnerability fields (id, package_name, version) cannot be empty")
 
 
 @dataclass
@@ -152,11 +154,14 @@ class DependencyGraph:
             self.root_packages = []
     
     def get_all_packages(self) -> List[Package]:
-        """Get all packages in the entire dependency graph."""
-        packages = []
+        """Get all packages in the entire dependency graph (deduplicated by name@version)."""
+        seen: Dict[str, Package] = {}
         for root in self.root_packages:
-            packages.extend(root.get_all_packages())
-        return packages
+            for package in root.get_all_packages():
+                key = f"{package.identifier.name}@{package.identifier.version}"
+                if key not in seen:
+                    seen[key] = package
+        return list(seen.values())
     
     def find_package(self, identifier: PackageIdentifier) -> Optional[Package]:
         """Find a specific package in the graph."""

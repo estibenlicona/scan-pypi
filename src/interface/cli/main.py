@@ -11,6 +11,8 @@ import asyncio
 import sys
 import re
 import argparse
+import shutil
+from datetime import datetime
 from typing import List
 from pathlib import Path
 
@@ -30,6 +32,7 @@ def generate_xlsx_only(report_path: str = "consolidated_report.json") -> None:
 
     if xlsx_adapter.generate_xlsx(report_path, "packages.xlsx"):
         print("[OK] XLSX report generated: packages.xlsx")
+        archive_reports(report_path, "packages.xlsx")
         sys.exit(0)
     else:
         print("[ERROR] Failed to generate XLSX report", file=sys.stderr)
@@ -38,6 +41,42 @@ def generate_xlsx_only(report_path: str = "consolidated_report.json") -> None:
 
 class RequirementsFileError(Exception):
     """Raised when the requirements file is missing or contains no packages."""
+
+
+def archive_reports(
+    json_report_path: str | Path,
+    xlsx_report_path: str | Path,
+    base_directory: str | Path = "reports_history",
+) -> Path | None:
+    """Copy generated reports into a timestamped folder for historical tracking."""
+
+    json_path = Path(json_report_path)
+    xlsx_path = Path(xlsx_report_path)
+
+    if not json_path.exists():
+        print(f"[ARCHIVE] Skipped: JSON report not found at {json_path}")
+        return None
+
+    if not xlsx_path.exists():
+        print(f"[ARCHIVE] Skipped: XLSX report not found at {xlsx_path}")
+        return None
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_dir = Path(base_directory)
+    archive_dir = base_dir / timestamp
+
+    if archive_dir.exists():
+        # Extremely rare collision (same second). Append microseconds to avoid overwrite.
+        unique_suffix = datetime.now().strftime("%f")
+        archive_dir = base_dir / f"{timestamp}_{unique_suffix}"
+
+    archive_dir.mkdir(parents=True, exist_ok=False)
+
+    shutil.copy2(json_path, archive_dir / json_path.name)
+    shutil.copy2(xlsx_path, archive_dir / xlsx_path.name)
+
+    print(f"[ARCHIVE] Reports copied to: {archive_dir}")
+    return archive_dir
 
 
 def read_requirements_file(path: str | Path = "requirements.scan.txt") -> List[str]:
@@ -124,8 +163,16 @@ async def run_analysis(libraries: List[str], generate_markdown: bool = False) ->
         
         # Auto-generate XLSX report
         xlsx_adapter = XLSXReportAdapter(container.logger)
-        if xlsx_adapter.generate_xlsx(container.settings.report.output_path, "packages.xlsx"):
+        if xlsx_adapter.generate_xlsx(
+            container.settings.report.output_path,
+            "packages.xlsx",
+            root_libraries=libraries,
+        ):
             print("[XLSX] Report generated: packages.xlsx")
+            archive_reports(
+                container.settings.report.output_path,
+                "packages.xlsx",
+            )
         
         # Generate markdown if requested
         if generate_markdown:

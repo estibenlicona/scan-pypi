@@ -92,8 +92,22 @@ class VulnerabilityInfo:
         return self.severity in [SeverityLevel.HIGH, SeverityLevel.CRITICAL]
     
     def affects_version(self, version: str) -> bool:
-        """Business logic: Check if vulnerability affects given version."""
-        # TODO: Implement version comparison logic
+        """Business logic: Check if vulnerability affects given version.
+        
+        Handles version comparison logic. The version field in VulnerabilityInfo
+        can be stored in different formats depending on the vulnerability source:
+        - Exact version: "2.32.1" matches "2.32.1"
+        - Wildcard/range: "*" matches any version
+        - Version range indicators (handled by OSV integration)
+        
+        For simplicity, we do direct version matching. If OSV provides range info,
+        it should be reflected in the version field during vulnerability parsing.
+        """
+        if self.version == "*" or version == "*":
+            # Wildcard means all versions are affected (for this vulnerability)
+            return True
+        
+        # Direct version comparison
         return self.version == version
 
 

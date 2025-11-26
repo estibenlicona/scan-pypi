@@ -64,9 +64,23 @@ class PolicyEngine:
     
     def evaluate_licenses(self, packages: List[Package]) -> List[Package]:
         """Mark packages with blocked licenses."""
+        # Normalize blocked licenses for case-insensitive comparison
+        # Remove: hyphens, underscores, 'v', and '.0' suffixes
+        def normalize_license(lic: str) -> str:
+            normalized = lic.upper().replace('-', '').replace('_', '').replace('V', '')
+            # Remove .0 suffix (e.g., "3.0" -> "3")
+            normalized = normalized.replace('.0', '')
+            return normalized
+        
+        blocked_licenses_normalized = {normalize_license(lic) for lic in self.policy.blocked_licenses}
+        
         for package in packages:
             if package.license and package.license.name:
-                if package.license.name in self.policy.blocked_licenses:
+                # Normalize package license for comparison
+                pkg_license_normalized = normalize_license(package.license.name)
+                
+                # Check if normalized license matches any blocked license
+                if pkg_license_normalized in blocked_licenses_normalized:
                     # Create new license with rejection flag
                     package.license = License(
                         name=package.license.name,
