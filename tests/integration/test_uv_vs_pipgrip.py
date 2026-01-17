@@ -80,7 +80,7 @@ async def test_single_package_resolution():
         return True
         
     except ImportError:
-        print("⚠ UV not available - install with: pip install uv-dep-resolver")
+        print("⚠ UV not available - install with: pip install uv_resolver")
         return False
     except Exception as e:
         print(f"✗ UV failed: {e}")
@@ -149,7 +149,7 @@ async def test_multiple_packages_resolution():
         return True
         
     except ImportError:
-        print("⚠ UV not available - install with: pip install uv-dep-resolver")
+        print("⚠ UV not available - install with: pip install uv_resolver")
         return False
     except Exception as e:
         print(f"✗ UV failed: {e}")

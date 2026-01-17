@@ -41,7 +41,7 @@ src/
 1. **Python 3.11+** con pip y venv
 2. **UV instalado** para resolución rápida de dependencias:
    ```bash
-   pip install uv uv-dep-resolver
+   pip install uv uv_resolver
    ```
 3. **Snyk CLI instalado** y autenticado:
    ```bash
@@ -197,9 +197,9 @@ REPORT_INCLUDE_SUMMARY=true
 
 Si estás actualizando desde una versión anterior con pipgrip:
 
-1. **Instalar uv-dep-resolver:**
+1. **Instalar uv_resolver:**
    ```bash
-   pip install uv-dep-resolver
+   pip install uv_resolver
    ```
 
 2. **Actualizar `.env`:**

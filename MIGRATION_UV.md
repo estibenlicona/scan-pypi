@@ -2,7 +2,7 @@
 
 ## Resumen Ejecutivo
 
-Se ha integrado `uv-dep-resolver` como alternativa de alto rendimiento a `pipgrip` para la resolución de dependencias. UV ofrece mejoras significativas en velocidad (10-100x más rápido) y manejo de caché inteligente.
+Se ha integrado `uv_resolver` como alternativa de alto rendimiento a `pipgrip` para la resolución de dependencias. UV ofrece mejoras significativas en velocidad (10-100x más rápido) y manejo de caché inteligente.
 
 ## Ventajas de UV sobre PipGrip
 
@@ -39,7 +39,7 @@ Se ha integrado `uv-dep-resolver` como alternativa de alto rendimiento a `pipgri
 ### 1. Instalar Dependencias
 
 ```bash
-pip install uv-dep-resolver
+pip install uv_resolver
 ```
 
 ### 2. Configurar .env
@@ -117,9 +117,9 @@ def dependency_resolver(self) -> DependencyResolverPort:
 
 ### Opción 1: Migración Gradual (Recomendado)
 
-1. **Instalar uv-dep-resolver**
+1. **Instalar uv_resolver**
    ```bash
-   pip install uv-dep-resolver
+   pip install uv_resolver
    ```
 
 2. **Probar en modo UV**
@@ -180,7 +180,7 @@ pytest tests/integration/test_resolver_comparison.py -v
 
 **Solución**:
 ```bash
-pip install uv-dep-resolver
+pip install uv_resolver
 # Verificar instalación
 python -c "from uv_dep_resolver import DependencyAnalyzer; print('✓')"
 ```
@@ -270,6 +270,6 @@ Sí. UV usa el mismo índice de PyPI que pipgrip. Cualquier paquete disponible e
 
 ## Referencias
 
-- [uv-dep-resolver en PyPI](https://pypi.org/project/uv-dep-resolver/)
+- [uv_resolver en PyPI](https://pypi.org/project/uv_resolver/)
 - [uv GitHub](https://github.com/astral-sh/uv)
 - [Documentación de uv](https://github.com/astral-sh/uv/blob/main/README.md)

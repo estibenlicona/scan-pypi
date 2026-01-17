@@ -1,5 +1,5 @@
 """
-UV Dependency Resolver Adapter - Implements DependencyResolverPort using uv-dep-resolver.
+UV Dependency Resolver Adapter - Implements DependencyResolverPort using uv_resolver.
 
 This adapter provides 10-100x faster dependency resolution compared to pipgrip
 with intelligent caching to avoid redundant analysis.
@@ -16,7 +16,7 @@ from src.domain.ports import DependencyResolverPort, LoggerPort, CachePort
 from src.domain.services import GraphBuilder
 
 try:
-    from uv_dep_resolver import DependencyAnalyzer, ResolveResult
+    from uv_resolver import DependencyAnalyzer, ResolveResult
     UV_AVAILABLE = True
 except ImportError:
     UV_AVAILABLE = False
@@ -33,22 +33,22 @@ class UvDepResolverAdapter(DependencyResolverPort):
         
         Args:
             logger: Logger port for logging
-            cache: Cache port (not used, uv-dep-resolver handles its own cache)
-            cache_dir: Directory for uv-dep-resolver cache
+            cache: Cache port (not used, uv_resolver handles its own cache)
+            cache_dir: Directory for uv_resolver cache
             
         Raises:
-            RuntimeError: If uv-dep-resolver is not installed
+            RuntimeError: If uv_resolver is not installed
         """
         if not UV_AVAILABLE:
             raise RuntimeError(
-                "uv-dep-resolver is not installed. Install it with: pip install uv-dep-resolver"
+                "uv_resolver is not installed. Install it with: pip install uv_resolver"
             )
         
         self.logger = logger
         self.cache = cache  # Keep for interface compatibility
         self.graph_builder = GraphBuilder()
         
-        # Initialize uv-dep-resolver analyzer
+        # Initialize uv_resolver analyzer
         self.cache_dir = Path(cache_dir)
         self.analyzer = DependencyAnalyzer(
             cache_dir=str(self.cache_dir),
@@ -114,9 +114,9 @@ class UvDepResolverAdapter(DependencyResolverPort):
     
     async def _run_uv_resolver(self, packages: List[str]) -> Dict[str, Any]:
         """
-        Resolve dependencies using uv-dep-resolver with parallel execution.
+        Resolve dependencies using uv_resolver with parallel execution.
         
-        uv-dep-resolver handles its own caching automatically, so we don't need
+        uv_resolver handles its own caching automatically, so we don't need
         to implement cache logic here.
         
         Args:
@@ -162,7 +162,7 @@ class UvDepResolverAdapter(DependencyResolverPort):
             else:
                 cache_misses += 1
             
-            # Convert uv-dep-resolver result to internal format
+            # Convert uv_resolver result to internal format
             dependency_entry = self._convert_uv_result_to_internal(result)
             all_dependencies.append(dependency_entry)
         
@@ -176,16 +176,16 @@ class UvDepResolverAdapter(DependencyResolverPort):
     
     async def _resolve_single_package(self, package: str) -> ResolveResult:
         """
-        Resolve a single package using uv-dep-resolver.
+        Resolve a single package using uv_resolver.
         
         This runs in an executor to avoid blocking the async event loop
-        since uv-dep-resolver's resolve() is synchronous.
+        since uv_resolver's resolve() is synchronous.
         
         Args:
             package: Package specification (e.g., 'requests==2.31.0')
             
         Returns:
-            ResolveResult from uv-dep-resolver
+            ResolveResult from uv_resolver
             
         Raises:
             RuntimeError: If resolution fails
@@ -205,10 +205,10 @@ class UvDepResolverAdapter(DependencyResolverPort):
     
     def _convert_uv_result_to_internal(self, result: ResolveResult) -> Dict[str, Any]:
         """
-        Convert uv-dep-resolver ResolveResult to internal dependency format.
+        Convert uv_resolver ResolveResult to internal dependency format.
         
         Args:
-            result: ResolveResult from uv-dep-resolver
+            result: ResolveResult from uv_resolver
             
         Returns:
             Dependency entry in internal format
@@ -224,7 +224,7 @@ class UvDepResolverAdapter(DependencyResolverPort):
     
     def _convert_tree_nodes(self, nodes: List[Any]) -> List[Dict[str, Any]]:
         """
-        Recursively convert uv-dep-resolver PackageNode tree to internal format.
+        Recursively convert uv_resolver PackageNode tree to internal format.
         
         Args:
             nodes: List of PackageNode objects
@@ -246,7 +246,7 @@ class UvDepResolverAdapter(DependencyResolverPort):
     
     def get_cache_stats(self) -> Dict[str, Any]:
         """
-        Get cache statistics from uv-dep-resolver.
+        Get cache statistics from uv_resolver.
         
         Returns:
             Dictionary with cache statistics
@@ -270,7 +270,7 @@ class UvDepResolverAdapter(DependencyResolverPort):
     
     def clear_cache(self) -> int:
         """
-        Clear uv-dep-resolver cache.
+        Clear uv_resolver cache.
         
         Returns:
             Number of files deleted
