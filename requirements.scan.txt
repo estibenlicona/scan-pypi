@@ -1,8 +1,4 @@
-xlsxwriter==3.2.9
-pytorch==2.9.0
-pyjanitor==0.31.0
-missingno==0.5.2
-category_encoders==2.9.0
-schedule==1.2.0
-airflow==3.1.2
-impyla==0.22.0
+pyodbc==5.3.0
+pandas==3.0.0
+unidecode==1.4.0
+pywin32==311
