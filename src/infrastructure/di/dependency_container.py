@@ -86,7 +86,8 @@ class DependencyContainer:
         if self._metadata_provider is None:
             self._metadata_provider = PyPIClientAdapter(
                 self.settings.api, 
-                self.logger
+                self.logger,
+                cache=self.cache
             )
         return self._metadata_provider
     
@@ -102,7 +103,8 @@ class DependencyContainer:
                 self._dependency_resolver = UvDepResolverAdapter(
                     logger=self.logger,
                     cache=self.cache,
-                    cache_dir=os.path.join(self.settings.cache.directory, "uv_cache")
+                    cache_dir=os.path.join(self.settings.cache.directory, "uv_cache"),
+                    api_settings=self.settings.api,
                 )
             elif resolver_type == "pipgrip":
                 self.logger.info("Using PipGrip dependency resolver (compatible mode)")

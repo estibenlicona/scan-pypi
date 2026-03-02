@@ -2,10 +2,6 @@
 requests>=2.31.0
 python-dotenv>=1.0.0
 
-# Web framework and ASGI server
-fastapi>=0.104.0
-uvicorn>=0.24.0
-
 # Dependency resolution
 pipgrip>=0.10.0
 
@@ -21,5 +17,3 @@ pytest>=8.0.0
 pytest-asyncio>=0.21.0
 
 openpyxl
-
--e ../uv_resolver

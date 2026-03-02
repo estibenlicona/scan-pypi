@@ -9,7 +9,28 @@ the application layer pure and delegating infrastructure concerns.
 from __future__ import annotations
 
 from src.application.use_cases import AnalyzePackagesUseCase, BuildConsolidatedReportUseCase, PipelineOrchestrator
+from src.domain.entities import Policy, SeverityLevel
 from src.infrastructure.di.dependency_container import DependencyContainer
+
+
+def _build_policy_from_settings(container: DependencyContainer) -> Policy:
+    """Convert infrastructure PolicySettings into a domain Policy entity."""
+    ps = container.settings.policy
+    max_sev = None
+    if ps.max_vulnerability_severity:
+        try:
+            max_sev = SeverityLevel(
+                ps.max_vulnerability_severity.lower()
+            )
+        except (ValueError, AttributeError):
+            max_sev = None
+    return Policy(
+        name="default",
+        description="Default analysis policy",
+        maintainability_years_threshold=ps.maintainability_years_threshold,
+        blocked_licenses=ps.blocked_licenses,
+        max_vulnerability_severity=max_sev,
+    )
 
 
 class ApplicationFactory:
@@ -42,7 +63,7 @@ class ApplicationFactory:
             metadata_provider=self.container.metadata_provider,
             cache=self.container.cache,
             logger=self.container.logger,
-            policy_settings=self.container.settings.policy
+            policy=_build_policy_from_settings(self.container),
         )
     
     def create_report_use_case(self) -> BuildConsolidatedReportUseCase:

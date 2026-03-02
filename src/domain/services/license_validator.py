@@ -1,7 +1,11 @@
 """License validation and extraction utilities."""
-from typing import Optional, Any, Dict
+from __future__ import annotations
+from typing import Optional, Any, Dict, TYPE_CHECKING
 from src.domain.entities import LicenseType, License
 import re
+
+if TYPE_CHECKING:
+    from src.domain.entities import Package
 
 
 class LicenseValidator:
@@ -19,6 +23,19 @@ class LicenseValidator:
         r"\bLGPL(?:[- ]?v?(\d(?:\.\d)?)?)\b",
         r"\bMPL(?:[- ]?v?(\d(?:\.\d)?)?)\b",
         r"\bMozilla\s+Public\s+License(?:\s+2\.0)?\b",
+        r"\bZope\s+Public\s+License\b",
+        r"\bZPL\b",
+        r"\bISC\b",
+        r"\bArtistic(?:\s+License)?(?:[-\s]?2\.0)?\b",
+        r"\bUnlicense\b",
+        r"\bCC0\b",
+        r"\bCC[-\s]?BY(?:[-\s]?(?:SA|NC|ND))*(?:[-\s]?\d\.\d)?\b",
+        r"\bEclipse\s+Public\s+License\b",
+        r"\bEPL(?:[-\s]?[12]\.0)?\b",
+        r"\bEUPL\b",
+        r"\bWTFPL\b",
+        r"\bBoost\s+Software\s+License\b",
+        r"\bBSL[-\s]?1\.0\b",
         r"\bPython Software Foundation\b",
         r"\bPSF\b",
         r"\bProprietary\b",
@@ -62,6 +79,19 @@ class LicenseValidator:
         "MPL": LicenseType.MPL_2_0,
         "PSF": LicenseType.MIT,  # Python Software Foundation often uses MIT-like
         "Python": LicenseType.MIT,
+        "Zope": LicenseType.UNKNOWN,
+        "ZPL": LicenseType.UNKNOWN,
+        "ISC": LicenseType.UNKNOWN,
+        "Artistic": LicenseType.UNKNOWN,
+        "Unlicense": LicenseType.UNKNOWN,
+        "CC0": LicenseType.UNKNOWN,
+        "CC-BY": LicenseType.UNKNOWN,
+        "Eclipse": LicenseType.UNKNOWN,
+        "EPL": LicenseType.UNKNOWN,
+        "EUPL": LicenseType.UNKNOWN,
+        "WTFPL": LicenseType.UNKNOWN,
+        "Boost": LicenseType.UNKNOWN,
+        "BSL": LicenseType.UNKNOWN,
     }
     
     @staticmethod
@@ -229,4 +259,41 @@ class LicenseValidator:
         if isinstance(value, str):
             v = value.strip()
             return v if v else None
+        return None
+
+    @staticmethod
+    def extract_from_package(package: Package) -> Optional[str]:
+        """Extract and validate license from a Package entity.
+
+        Cascade strategy (stops at first valid license found):
+        1. ``package.license.name`` — direct license field
+        2. Classifiers starting with ``License ::``
+        3. ``None`` if no valid license found
+
+        Args:
+            package: Domain Package entity.
+
+        Returns:
+            Recognised license name string or ``None``.
+        """
+        # Level 1: Direct license field
+        if package.license and package.license.name:
+            extracted = LicenseValidator.extract_license(
+                package.license.name.strip()
+            )
+            if extracted:
+                return extracted
+
+        # Level 2: Classifiers
+        if package.classifiers:
+            for classifier in package.classifiers:
+                if classifier.startswith("License ::"):
+                    name = LicenseValidator.extract_from_classifier(
+                        classifier
+                    )
+                    if name:
+                        extracted = LicenseValidator.extract_license(name)
+                        if extracted:
+                            return extracted
+
         return None

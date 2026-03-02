@@ -1,3 +1,3 @@
 """
-Interface layer - Contains CLI and HTTP handlers.
+Interface layer - Contains CLI handlers.
 """

@@ -1,0 +1,49 @@
+{
+  "timestamp": "2026-03-01T18:19:21.289764",
+  "vulnerabilities": [],
+  "packages": [
+    {
+      "package": "numpy",
+      "version": "1.24.0",
+      "license": "BSD",
+      "aprobada": "S\u00ed",
+      "motivo_rechazo": ""
+    },
+    {
+      "package": "pandas",
+      "version": "2.0.0",
+      "license": "BSD",
+      "aprobada": "S\u00ed",
+      "motivo_rechazo": ""
+    },
+    {
+      "package": "requests",
+      "version": "2.32.1",
+      "license": "Apache-2.0",
+      "aprobada": "No",
+      "motivo_rechazo": "Vulnerabilidad detectada"
+    },
+    {
+      "package": "urllib3",
+      "version": "1.26.16",
+      "license": "MIT",
+      "aprobada": "S\u00ed",
+      "motivo_rechazo": ""
+    },
+    {
+      "package": "scipy",
+      "version": "1.10.0",
+      "license": null,
+      "aprobada": "No",
+      "motivo_rechazo": "Sin licencia v\u00e1lida"
+    },
+    {
+      "package": "matplotlib",
+      "version": "3.7.0",
+      "license": "PSF",
+      "aprobada": "S\u00ed",
+      "motivo_rechazo": ""
+    }
+  ],
+  "filtered_packages": []
+}

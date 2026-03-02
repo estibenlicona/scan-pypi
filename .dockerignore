@@ -1,0 +1,42 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Environment secrets
+.env
+
+# IDE
+.vscode/
+*.code-workspace
+
+# Tests
+tests/
+test_cache_resolvers/
+test_uv_cache/
+
+# Reports & outputs
+reports_history/
+*.xlsx
+*.log
+consolidated_report.json
+
+# Docs
+docs/
+features/
+*.md
+!requirements*.txt
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

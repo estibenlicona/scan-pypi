@@ -6,12 +6,12 @@ from __future__ import annotations
 import re
 import asyncio
 import aiohttp
-from typing import Optional, Dict, Any, List, cast
+from typing import Optional, Dict, Any, List, Tuple, cast
 from typing import Any as TypingAny
 from datetime import datetime
 
 from src.domain.entities import Package, License, LicenseType
-from src.domain.ports import MetadataProviderPort, LoggerPort
+from src.domain.ports import MetadataProviderPort, LoggerPort, CachePort
 from src.domain.services.license_validator import LicenseValidator
 from src.infrastructure.config.settings import APISettings
 from src.infrastructure.utilities.retry_policy import RetryPolicy
@@ -20,9 +20,24 @@ from src.infrastructure.utilities.retry_policy import RetryPolicy
 class PyPIClientAdapter(MetadataProviderPort):
     """Adapter for PyPI API metadata enrichment."""
     
-    def __init__(self, settings: APISettings, logger: LoggerPort) -> None:
+    # Cache TTL for version-specific PyPI data (immutable once published)
+    _PYPI_METADATA_TTL = 7 * 24 * 3600  # 7 days
+    _GITHUB_LICENSE_TTL = 7 * 24 * 3600  # 7 days
+
+    def __init__(
+        self,
+        settings: APISettings,
+        logger: LoggerPort,
+        cache: Optional[CachePort] = None,
+    ) -> None:
         self.settings = settings
         self.logger = logger
+        self._cache = cache
+        # Cache performance counters
+        self._pypi_cache_hits = 0
+        self._pypi_cache_misses = 0
+        self._github_cache_hits = 0
+        self._github_cache_misses = 0
         # Initialize retry policy for resilient API calls
         self.retry_policy = RetryPolicy(
             max_retries=3,
@@ -31,6 +46,22 @@ class PyPIClientAdapter(MetadataProviderPort):
             logger=logger
         )
     
+    def get_cache_stats(self) -> Dict[str, int]:
+        """Return current cache performance counters."""
+        return {
+            "pypi_hits": self._pypi_cache_hits,
+            "pypi_misses": self._pypi_cache_misses,
+            "github_hits": self._github_cache_hits,
+            "github_misses": self._github_cache_misses,
+        }
+
+    def reset_cache_stats(self) -> None:
+        """Reset all cache performance counters to zero."""
+        self._pypi_cache_hits = 0
+        self._pypi_cache_misses = 0
+        self._github_cache_hits = 0
+        self._github_cache_misses = 0
+
     # --- Helper normalization utilities ---------------------------------
     def _safe_str(self, value: TypingAny) -> Optional[str]:
         """Return a stripped string or None for non-string/empty values."""
@@ -105,16 +136,39 @@ class PyPIClientAdapter(MetadataProviderPort):
             # Update package with PyPI data
             enriched_package = self._merge_pypi_data(package, pypi_data)
             
-            # Fetch latest version from PyPI
-            latest_version = await self._fetch_latest_version(package.identifier.name)
-            if latest_version:
-                enriched_package.latest_version = latest_version
+            # Fetch latest version and its upload_time from PyPI
+            latest_ver, latest_ut = await self._fetch_latest_version_info(
+                package.identifier.name
+            )
+            if latest_ver:
+                enriched_package.latest_version = latest_ver
+            if latest_ut:
+                enriched_package.latest_upload_time = latest_ut
             
             # Enrich with GitHub data if available
             if enriched_package.github_url:
-                github_data = await self._fetch_github_metadata(enriched_package.github_url)
+                github_data = await self._fetch_github_metadata(
+                    enriched_package.github_url
+                )
                 if github_data:
-                    enriched_package = self._merge_github_data(enriched_package, github_data)
+                    self._github_cache_misses += 1
+                    # Cache license for fallback on future rate-limits
+                    await self._cache_github_license(
+                        enriched_package.github_url, github_data
+                    )
+                    enriched_package = self._merge_github_data(
+                        enriched_package, github_data
+                    )
+                else:
+                    # Fallback: cached license (no pushed_at)
+                    cached_gh = await self._get_cached_github_license(
+                        enriched_package.github_url
+                    )
+                    if cached_gh:
+                        self._github_cache_hits += 1
+                        enriched_package = self._merge_github_data(
+                            enriched_package, cached_gh
+                        )
             
             self.logger.debug(f"Successfully enriched {package.identifier}")
             return enriched_package
@@ -124,11 +178,28 @@ class PyPIClientAdapter(MetadataProviderPort):
             return package  # Return original package if enrichment fails
     
     async def _fetch_pypi_metadata(self, package_name: str, version: str) -> Optional[Dict[str, Any]]:
-        """Fetch metadata from PyPI API with automatic retries.
-        
-        Tries to fetch specific version first, falls back to latest version if not found.
-        Uses retry policy to handle timeouts and transient failures.
+        """Fetch metadata from PyPI API with cache and automatic retries.
+
+        Version-specific PyPI data is immutable once published, so results
+        are cached to avoid redundant HTTP calls across scans.
+        Tries specific version first, falls back to latest if not found.
         """
+        # Check cache first (version-specific data is immutable)
+        cache_key: Optional[str] = None
+        if self._cache:
+            cache_key = self._cache.generate_key(
+                "pypi_metadata", package_name.lower(), version
+            )
+            cached = await self._cache.get(cache_key)
+            if cached is not None:
+                self._pypi_cache_hits += 1
+                self.logger.debug(
+                    f"Cache hit for PyPI metadata: "
+                    f"{package_name}@{version}"
+                )
+                return cached
+            self._pypi_cache_misses += 1
+
         # Helper function to fetch with retry
         async def fetch_with_retry() -> Optional[Dict[str, Any]]:
             # First, try to fetch the specific version
@@ -158,10 +229,19 @@ class PyPIClientAdapter(MetadataProviderPort):
         
         # Apply retry policy
         try:
-            return await self.retry_policy.execute(fetch_with_retry)
+            result = await self.retry_policy.execute(fetch_with_retry)
         except Exception as e:
             self.logger.warning(f"Failed to fetch {package_name}@{version} after retries: {e}")
             return None
+
+        # Store in cache (immutable per version)
+        if result is not None and self._cache and cache_key:
+            await self._cache.set(
+                cache_key, result,
+                ttl_seconds=self._PYPI_METADATA_TTL
+            )
+
+        return result
     
     async def fetch_latest_version(self, package_name: str) -> Optional[str]:
         """Public method to fetch latest version of a package from PyPI."""
@@ -169,25 +249,55 @@ class PyPIClientAdapter(MetadataProviderPort):
     
     async def _fetch_latest_version(self, package_name: str) -> Optional[str]:
         """Fetch the latest version of a package from PyPI with automatic retries."""
-        async def fetch_with_retry() -> Optional[str]:
+        version, _ = await self._fetch_latest_version_info(package_name)
+        return version
+
+    async def _fetch_latest_version_info(
+        self, package_name: str
+    ) -> Tuple[Optional[str], Optional[datetime]]:
+        """Fetch latest version and its upload_time from PyPI."""
+        async def fetch_with_retry() -> Tuple[Optional[str], Optional[datetime]]:
             url = f"{self.settings.pypi_base_url}/{package_name}/json"
-            
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)) as session:
+
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)
+            ) as session:
                 async with session.get(url) as response:
                     if response.status == 200:
                         data = await response.json()
-                        # PyPI returns latest version in info.version
-                        return data.get("info", {}).get("version")
+                        version = data.get("info", {}).get("version")
+                        upload_time = self._parse_upload_time(data)
+                        return version, upload_time
                     else:
-                        self.logger.debug(f"PyPI API returned {response.status} for {package_name} (may be pre-release or local version)")
-                        return None
-        
-        # Apply retry policy
+                        self.logger.debug(
+                            f"PyPI API returned {response.status} for "
+                            f"{package_name} (may be pre-release)"
+                        )
+                        return None, None
+
         try:
             return await self.retry_policy.execute(fetch_with_retry)
         except Exception as e:
-            self.logger.warning(f"Failed to fetch latest version for {package_name} after retries: {e}")
-            return None
+            self.logger.warning(
+                f"Failed to fetch latest version for {package_name} "
+                f"after retries: {e}"
+            )
+            return None, None
+
+    @staticmethod
+    def _parse_upload_time(pypi_data: Dict[str, Any]) -> Optional[datetime]:
+        """Extract upload_time from PyPI JSON response."""
+        urls = pypi_data.get("urls", [])
+        if urls:
+            ut_str = urls[0].get("upload_time")
+            if ut_str:
+                try:
+                    return datetime.fromisoformat(
+                        ut_str.replace('Z', '+00:00')
+                    )
+                except ValueError:
+                    pass
+        return None
     
     async def _fetch_github_metadata(self, github_url: str) -> Optional[Dict[str, Any]]:
         """Fetch metadata from GitHub API with authentication support and automatic retries."""
@@ -237,6 +347,32 @@ class PyPIClientAdapter(MetadataProviderPort):
         except Exception as e:
             self.logger.warning(f"Failed to fetch GitHub data for {owner}/{repo} after retries: {e}")
             return None
+
+    async def _cache_github_license(
+        self, github_url: str, github_data: Dict[str, Any]
+    ) -> None:
+        """Cache only license-relevant fields from GitHub response."""
+        if not self._cache:
+            return
+        cache_key = self._cache.generate_key(
+            "github_license", github_url.lower()
+        )
+        license_data = {"license": github_data.get("license")}
+        await self._cache.set(
+            cache_key, license_data,
+            ttl_seconds=self._GITHUB_LICENSE_TTL
+        )
+
+    async def _get_cached_github_license(
+        self, github_url: str
+    ) -> Optional[Dict[str, Any]]:
+        """Retrieve cached GitHub license as fallback (no pushed_at)."""
+        if not self._cache:
+            return None
+        cache_key = self._cache.generate_key(
+            "github_license", github_url.lower()
+        )
+        return await self._cache.get(cache_key)
     
     def _merge_pypi_data(self, package: Package, pypi_data: Dict[str, Any]) -> Package:
         """Merge PyPI data into package."""
@@ -252,15 +388,7 @@ class PyPIClientAdapter(MetadataProviderPort):
         )
         
         # Parse upload time
-        upload_time = None
-        if "urls" in pypi_data and pypi_data["urls"]:
-            # Get upload time from first URL entry
-            upload_time_str = pypi_data["urls"][0].get("upload_time")
-            if upload_time_str:
-                try:
-                    upload_time = datetime.fromisoformat(upload_time_str.replace('Z', '+00:00'))
-                except ValueError:
-                    pass
+        upload_time = self._parse_upload_time(pypi_data)
         
         # Extract GitHub URL from project URLs or description
         github_url = self._extract_github_url(cast(Dict[str, Any], info))
@@ -297,7 +425,7 @@ class PyPIClientAdapter(MetadataProviderPort):
         )
     
     def _merge_github_data(self, package: Package, github_data: Dict[str, Any]) -> Package:
-        """Merge GitHub data into package (currently used for license fallback only)."""
+        """Merge GitHub data into package (license fallback + last commit date)."""
         # Use LicenseValidator to extract license from GitHub if PyPI license is missing
         final_license = package.license
         
@@ -309,6 +437,9 @@ class PyPIClientAdapter(MetadataProviderPort):
             )
             if github_license:
                 final_license = github_license
+
+        # Extract last commit/push date from GitHub
+        last_commit_date = self._parse_github_pushed_at(github_data)
         
         # Return updated package with merged GitHub data
         return Package(
@@ -327,8 +458,25 @@ class PyPIClientAdapter(MetadataProviderPort):
             project_urls=package.project_urls,
             github_url=package.github_url,
             latest_version=package.latest_version,
+            latest_upload_time=package.latest_upload_time,
+            last_commit_date=last_commit_date or package.last_commit_date,
             dependencies=package.dependencies
         )
+
+    @staticmethod
+    def _parse_github_pushed_at(
+        github_data: Dict[str, Any]
+    ) -> Optional[datetime]:
+        """Extract pushed_at datetime from GitHub API response."""
+        pushed_at = github_data.get("pushed_at")
+        if not pushed_at:
+            return None
+        try:
+            return datetime.fromisoformat(
+                pushed_at.replace("Z", "+00:00")
+            )
+        except (ValueError, AttributeError):
+            return None
     
     def _extract_github_url(self, info: Dict[str, Any]) -> Optional[str]:
         """Extract GitHub URL from package info."""

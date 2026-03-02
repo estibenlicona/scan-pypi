@@ -90,6 +90,8 @@ class PackageDTO:
     project_urls: Dict[str, str] = field(default_factory=dict)
     github_url: Optional[str] = None
     github_license: Optional[str] = None
+    latest_upload_time: Optional[datetime] = None
+    last_commit_date: Optional[datetime] = None
     dependencies: List[DependencyInfo] = field(default_factory=list)
     is_maintained: bool = False
     license_rejected: bool = False

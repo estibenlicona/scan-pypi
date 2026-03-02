@@ -68,13 +68,27 @@ class Vulnerability:
     severity: SeverityLevel
     package_name: str
     version: str
-    license: Optional[License] = None
+    cvss: Optional[str] = None
+    fixed_in: List[str] = field(default_factory=list)
     
     def __post_init__(self) -> None:
-        # Only require ID and package_name/version to be non-empty
-        # Title and description can be generated/placeholder values
+        """Validate required fields."""
         if not self.id or not self.package_name or not self.version:
-            raise ValueError("Required vulnerability fields (id, package_name, version) cannot be empty")
+            raise ValueError(
+                "Required vulnerability fields "
+                "(id, package_name, version) cannot be empty"
+            )
+
+    @property
+    def is_high_severity(self) -> bool:
+        """Check if vulnerability is high or critical severity."""
+        return self.severity in (SeverityLevel.HIGH, SeverityLevel.CRITICAL)
+
+    def affects_version(self, version: str) -> bool:
+        """Check if this vulnerability affects the given version."""
+        if self.version == "*" or version == "*":
+            return True
+        return self.version == version
 
 
 @dataclass
@@ -95,6 +109,8 @@ class Package:
     project_urls: Dict[str, str] = field(default_factory=dict)
     github_url: Optional[str] = None
     latest_version: Optional[str] = None  # Latest version available on PyPI
+    latest_upload_time: Optional[datetime] = None  # Upload time of latest version
+    last_commit_date: Optional[datetime] = None  # Last push/commit date from GitHub
     dependencies: List[DependencyInfo] = field(default_factory=list)
     
     def __post_init__(self) -> None:
@@ -111,18 +127,32 @@ class Package:
         return self.identifier.version
     
     def is_maintained(self, years_threshold: int = 2) -> bool:
-        """Check if package is maintained based on upload time."""
-        if not self.upload_time:
-            return False
-        
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=years_threshold * 365)
-        
-        # Ensure upload_time has timezone info
-        upload_time = self.upload_time
-        if upload_time.tzinfo is None:
-            upload_time = upload_time.replace(tzinfo=timezone.utc)
-        
-        return upload_time >= cutoff_date
+        """Check if package is maintained based on multiple signals.
+
+        Evaluation order (any passing = maintained):
+        1. latest_upload_time  – latest PyPI release date
+        2. last_commit_date    – last GitHub push/commit date
+        3. upload_time         – resolved version upload date (fallback)
+        """
+        cutoff_date = datetime.now(timezone.utc) - timedelta(
+            days=years_threshold * 365
+        )
+
+        for candidate in (
+            self.latest_upload_time,
+            self.last_commit_date,
+            self.upload_time,
+        ):
+            if candidate is None:
+                continue
+            check = candidate
+            if check.tzinfo is None:
+                check = check.replace(tzinfo=timezone.utc)
+            if check >= cutoff_date:
+                return True
+
+        # All dates are None or older than threshold
+        return False
 
 
 @dataclass
@@ -180,6 +210,23 @@ class Policy:
     maintainability_years_threshold: int = 2
     blocked_licenses: List[str] = field(default_factory=list)
     max_vulnerability_severity: Optional[SeverityLevel] = None
+
+
+class ApprovalStatus(Enum):
+    """Possible approval outcomes for a package."""
+    APPROVED = "Sí"
+    REJECTED = "No"
+    UNDER_REVIEW = "En verificación"
+
+
+@dataclass(frozen=True)
+class ApprovalResult:
+    """Value object representing the approval evaluation result for a package."""
+    status: ApprovalStatus
+    rejection_reason: Optional[str] = None
+    rejected_dependencies: List[str] = field(default_factory=list)
+    direct_dependencies: List[DependencyInfo] = field(default_factory=list)
+    transitive_dependencies: List[DependencyInfo] = field(default_factory=list)
 
 
 @dataclass

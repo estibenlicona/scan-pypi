@@ -167,13 +167,6 @@ async def main():
         print(f"✓ UV resolved {len(uv_packages)} packages")
         print(f"  Packages: {sorted([p.name for p in uv_packages])}")
         
-        # Show cache stats
-        stats = uv.get_cache_stats()
-        print(f"\n3. UV Cache Statistics:")
-        print(f"  Total packages: {stats['total_packages']}")
-        print(f"  Total dependencies: {stats['total_dependencies']}")
-        print(f"  Cache size: {stats['cache_size_bytes'] / 1024:.2f} KB")
-        
     except Exception as e:
         print(f"✗ UV failed: {e}")
     

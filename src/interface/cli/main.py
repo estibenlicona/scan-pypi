@@ -207,60 +207,113 @@ def generate_markdown_only(report_path: str = "consolidated_report.json") -> Non
 ## CSV adapter removed
 
 
-def main() -> None:
-    """
-    Main CLI entry point.
-    
-    Handles only CLI orchestration: argument parsing, async execution,
-    and error presentation. Follows Single Responsibility Principle.
-    """
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the CLI."""
     parser = argparse.ArgumentParser(
-        description="PyPI Package Analysis Tool - Analyze dependencies and generate reports"
+        prog="scan",
+        description=(
+            "PyPI Package Scanner — analiza dependencias, "
+            "vulnerabilidades y licencias."
+        ),
+        usage="scan <paquete[==version]> [...] [opciones]",
+        epilog=(
+            "Ejemplos:\n"
+            "  scan requests==2.28.0\n"
+            "  scan flask django==4.2\n"
+            "  scan -f requirements.scan.txt\n"
+            "  scan requests --markdown\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "packages",
+        nargs="*",
+        metavar="paquete",
+        help="Paquetes a escanear (ej: requests==2.28.0 flask)",
+    )
+    parser.add_argument(
+        "-f", "--file",
+        type=str,
+        default=None,
+        help="Leer paquetes desde un archivo de requirements",
     )
     parser.add_argument(
         "--markdown",
         action="store_true",
-        help="Generate Markdown report (packages.md) after analysis"
+        help="Generar también reporte Markdown (packages.md)",
     )
     parser.add_argument(
         "--markdown-only",
         action="store_true",
-        help="Generate Markdown report from existing consolidated_report.json (no analysis)"
+        help="Solo generar Markdown desde consolidated_report.json",
     )
-## CSV adapter removed
     parser.add_argument(
         "--xlsx",
         action="store_true",
-        help="Generate Excel report (packages.xlsx) from existing consolidated_report.json (no analysis)"
+        help="Solo generar Excel desde consolidated_report.json",
     )
     parser.add_argument(
         "--report",
         type=str,
         default="consolidated_report.json",
-        help="Path to consolidated report (used with --markdown-only)"
+        help="Ruta al JSON de reporte (para --markdown-only / --xlsx)",
     )
-    
+    return parser
+
+
+def _resolve_libraries(args: argparse.Namespace) -> List[str]:
+    """Determine the list of libraries to scan from args.
+
+    Priority:
+    1. Positional ``packages`` on the command line.
+    2. ``--file`` flag pointing to a requirements file.
+    3. Default ``requirements.scan.txt`` if it exists.
+
+    Raises:
+        SystemExit: When no packages are provided.
+    """
+    # Positional packages take priority
+    if args.packages:
+        return args.packages
+
+    # Explicit file flag
+    if args.file:
+        return read_requirements_file(args.file)
+
+    # Fallback: default requirements file
+    default_file = Path("requirements.scan.txt")
+    if default_file.exists():
+        return read_requirements_file(str(default_file))
+
+    print(
+        "[ERROR] No se indicaron paquetes.\n\n"
+        "Uso:\n"
+        "  scan <paquete[==version]> [...]\n"
+        "  scan -f requirements.scan.txt\n",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def main() -> None:
+    """Main CLI entry point."""
+    parser = _build_parser()
     args = parser.parse_args()
-    
-    # Handle markdown-only mode
+
+    # Report-only modes (no analysis)
     if args.markdown_only:
         generate_markdown_only(args.report)
         return
-    ## CSV adapter removed
-    # Handle xlsx-only mode
     if args.xlsx:
         generate_xlsx_only(args.report)
         return
-    
-    try:
-        # Read libraries to analyze from requirements.scan.txt
-        libraries = read_requirements_file()
 
-        # Execute analysis pipeline
+    try:
+        libraries = _resolve_libraries(args)
         asyncio.run(run_analysis(libraries, generate_markdown=args.markdown))
 
     except KeyboardInterrupt:
-        print("\n  Analysis interrupted by user")
+        print("\n  Análisis interrumpido por el usuario")
         sys.exit(1)
 
     except RequirementsFileError as e:
@@ -268,7 +321,7 @@ def main() -> None:
         sys.exit(1)
 
     except Exception as e:
-        print(f"[ERROR] Error: {e}", file=sys.stderr)
+        print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
 
 

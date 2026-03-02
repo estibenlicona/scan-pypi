@@ -1,104 +1,107 @@
 """
-Application Mappers - Convert between domain models and DTOs.
-Bridge between strict domain objects and flexible interface objects.
+Application Mappers — Convert between domain entities and DTOs.
+
+With domain/models eliminated, these mappers bridge domain entities
+directly to application DTOs without an intermediate layer.
 """
 
+from __future__ import annotations
 from typing import Any, Dict, List
-from datetime import datetime
 
-# Domain models (strict typing)
-from src.domain.models import (
-    AnalysisRequest as DomainAnalysisRequest,
-    PackageInfo as DomainPackageInfo,
-    VulnerabilityInfo as DomainVulnerabilityInfo,
-    AnalysisResult as DomainAnalysisResult,
-    ConsolidatedReport as DomainConsolidatedReport
+from src.domain.entities import (
+    AnalysisResult,
+    Package,
+    Vulnerability,
+    ApprovalResult,
+    ApprovalStatus,
 )
-
-# Application DTOs (flexible typing)  
 from src.application.dtos import (
-    AnalysisRequest as DTOAnalysisRequest,
+    AnalysisRequest,
     PackageDTO,
     VulnerabilityDTO,
     AnalysisResultDTO,
-    ReportDTO
 )
+from src.domain.services.license_validator import LicenseValidator
 
 
-class DomainToDTOMapper:
-    """Maps from strict domain models to flexible DTOs."""
-    
+class EntityToDTOMapper:
+    """Maps from domain entities to application DTOs."""
+
     @staticmethod
-    def analysis_request_to_dto(domain_request: DomainAnalysisRequest) -> DTOAnalysisRequest:
-        """Convert domain AnalysisRequest to DTO."""
-        return DTOAnalysisRequest(
-            libraries=domain_request.libraries,
-            policy_name=domain_request.policy_name
-        )
-    
-    @staticmethod
-    def package_info_to_dto(domain_package: DomainPackageInfo) -> PackageDTO:
-        """Convert domain PackageInfo to DTO."""
-        return PackageDTO(
-            name=domain_package.name,
-            version=domain_package.version,
-            license=domain_package.license,
-            upload_time=domain_package.upload_time,
-            summary=domain_package.summary,
-            home_page=domain_package.home_page,
-            author=domain_package.author,
-            author_email=domain_package.author_email,
-            maintainer=domain_package.maintainer,
-            maintainer_email=domain_package.maintainer_email,
-            keywords=domain_package.keywords,
-            classifiers=domain_package.classifiers,
-            requires_dist=domain_package.requires_dist,
-            project_urls=domain_package.project_urls,
-            github_url=domain_package.github_url,
-            github_license=domain_package.github_license,
-            dependencies=domain_package.dependencies,
-            is_maintained=domain_package.is_maintained,
-            license_rejected=domain_package.license_rejected,
-            aprobada=domain_package.aprobada,
-            motivo_rechazo=domain_package.motivo_rechazo,
-            dependencias_directas=domain_package.dependencias_directas,
-            dependencias_transitivas=domain_package.dependencias_transitivas
-        )
-    
-    @staticmethod
-    def vulnerability_info_to_dto(domain_vuln: DomainVulnerabilityInfo) -> VulnerabilityDTO:
-        """Convert domain VulnerabilityInfo to DTO."""
+    def vulnerability_to_dto(vuln: Vulnerability) -> VulnerabilityDTO:
+        """Convert Vulnerability entity to DTO."""
         return VulnerabilityDTO(
-            id=domain_vuln.id,
-            title=domain_vuln.title,
-            description=domain_vuln.description,
-            severity=domain_vuln.severity.value,  # Convert enum to string
-            package_name=domain_vuln.package_name,
-            version=domain_vuln.version,
-            license=None  # Not available in domain model
+            id=vuln.id,
+            title=vuln.title,
+            description=vuln.description,
+            severity=vuln.severity.value,
+            package_name=vuln.package_name,
+            version=vuln.version,
+            license=None,
         )
 
-
-class DTOToDomainMapper:
-    """Maps from flexible DTOs to strict domain models."""
-    
     @staticmethod
-    def dto_to_analysis_request(dto_request: DTOAnalysisRequest) -> DomainAnalysisRequest:
-        """Convert DTO AnalysisRequest to domain model."""
-        return DomainAnalysisRequest(
-            libraries=dto_request.libraries,
-            policy_name=dto_request.policy_name
+    def package_to_dto(
+        package: Package,
+        approval: ApprovalResult | None = None,
+    ) -> PackageDTO:
+        """Convert Package entity + optional ApprovalResult to DTO."""
+        license_name = LicenseValidator.extract_from_package(package)
+
+        return PackageDTO(
+            name=package.name,
+            version=package.version,
+            latest_version=package.latest_version,
+            license=license_name,
+            upload_time=package.upload_time,
+            summary=package.summary,
+            home_page=package.home_page,
+            author=package.author,
+            author_email=package.author_email,
+            maintainer=package.maintainer,
+            maintainer_email=package.maintainer_email,
+            keywords=package.keywords,
+            classifiers=(package.classifiers or []).copy(),
+            requires_dist=(package.requires_dist or []).copy(),
+            project_urls=(package.project_urls or {}).copy(),
+            github_url=package.github_url,
+            dependencies=package.dependencies,
+            is_maintained=package.is_maintained(),
+            latest_upload_time=package.latest_upload_time,
+            last_commit_date=package.last_commit_date,
+            license_rejected=(
+                package.license.is_rejected if package.license else False
+            ),
+            aprobada=(
+                approval.status.value
+                if approval
+                else ApprovalStatus.UNDER_REVIEW.value
+            ),
+            motivo_rechazo=(
+                approval.rejection_reason if approval else None
+            ),
+            dependencias_directas=(
+                list(approval.direct_dependencies) if approval else []
+            ),
+            dependencias_transitivas=(
+                list(approval.transitive_dependencies) if approval else []
+            ),
+            dependencias_rechazadas=(
+                list(approval.rejected_dependencies) if approval else []
+            ),
         )
 
 
 class InterfaceMapper:
-    """Maps between domain models and dynamic interface objects."""
-    
+    """Maps domain entities to plain dicts for HTTP responses."""
+
     @staticmethod
-    def domain_analysis_result_to_dict(domain_result: DomainAnalysisResult) -> Dict[str, Any]:
-        """Convert domain AnalysisResult to flexible dict for HTTP response."""
+    def analysis_result_to_dict(
+        result: AnalysisResult,
+    ) -> Dict[str, Any]:
+        """Convert AnalysisResult entity to a JSON-ready dictionary."""
         return {
-            "timestamp": domain_result.timestamp.isoformat(),
+            "timestamp": result.timestamp.isoformat(),
             "vulnerabilities": [
                 {
                     "id": v.id,
@@ -107,53 +110,48 @@ class InterfaceMapper:
                     "severity": v.severity.value,
                     "package": v.package_name,
                     "version": v.version,
-                    "cvss": v.cvss,
-                    "fixed_in": v.fixed_in,
-                    "is_high_severity": v.is_high_severity  # Include business logic
+                    "is_high_severity": v.is_high_severity,
                 }
-                for v in domain_result.vulnerabilities
+                for v in result.vulnerabilities
             ],
             "packages": [
                 {
                     "name": p.name,
                     "version": p.version,
-                    "license": p.license,
-                    "upload_time": p.upload_time.isoformat() if p.upload_time else None,
+                    "license": (
+                        p.license.name if p.license else None
+                    ),
+                    "upload_time": (
+                        p.upload_time.isoformat()
+                        if p.upload_time
+                        else None
+                    ),
                     "summary": p.summary,
                     "home_page": p.home_page,
                     "author": p.author,
-                    "is_maintained": p.is_maintained,
-                    "license_rejected": p.license_rejected,
-                    "classifiers": p.classifiers,
-                    "dependencies": p.dependencies
+                    "is_maintained": p.is_maintained(),
+                    "license_rejected": (
+                        p.license.is_rejected if p.license else False
+                    ),
                 }
-                for p in domain_result.packages
+                for p in result.get_all_packages()
             ],
             "filtered_packages": [
                 {
                     "name": p.name,
                     "version": p.version,
-                    "license": p.license,
-                    "is_maintained": p.is_maintained,
-                    "license_rejected": p.license_rejected
+                    "is_maintained": p.is_maintained(),
                 }
-                for p in domain_result.maintained_packages
+                for p in result.maintained_packages
             ],
             "summary": {
-                "total_packages": domain_result.total_packages,
-                "total_vulnerabilities": len(domain_result.vulnerabilities),
-                "high_severity_vulnerabilities": len(domain_result.high_severity_vulnerabilities),
-                "vulnerable_packages": len(domain_result.vulnerable_packages),
-                "maintained_packages": len(domain_result.maintained_packages),
-                "policy_applied": domain_result.policy_applied
-            }
+                "total_packages": len(result.get_all_packages()),
+                "total_vulnerabilities": len(result.vulnerabilities),
+                "maintained_packages": len(result.maintained_packages),
+                "policy_applied": (
+                    result.policy_applied.name
+                    if result.policy_applied
+                    else None
+                ),
+            },
         }
-    
-    @staticmethod  
-    def dict_to_domain_analysis_request(request_dict: Dict[str, Any]) -> DomainAnalysisRequest:
-        """Convert flexible dict to strict domain AnalysisRequest."""
-        return DomainAnalysisRequest(
-            libraries=request_dict.get("libraries", []),
-            organization=request_dict.get("organization"),
-            policy_name=request_dict.get("policy_name")
-        )

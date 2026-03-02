@@ -1,0 +1,59 @@
+{
+  "packages": [
+    {
+      "package": "good-lib",
+      "version": "1.0.0",
+      "license": "MIT",
+      "aprobada": "S\u00ed",
+      "motivo_rechazo": null,
+      "dependencias_directas": [],
+      "dependencias_transitivas": [],
+      "upload_time": "2023-01-01",
+      "summary": "A good library"
+    },
+    {
+      "package": "ok-lib",
+      "version": "1.0.0",
+      "license": null,
+      "aprobada": "S\u00ed",
+      "motivo_rechazo": "\u26a0 Licencia no documentada en PyPI",
+      "dependencias_directas": [],
+      "dependencias_transitivas": [],
+      "upload_time": "2023-01-01",
+      "summary": "Library with missing license"
+    },
+    {
+      "package": "vulnerable-lib",
+      "version": "1.0.0",
+      "license": "MIT",
+      "aprobada": "No",
+      "motivo_rechazo": "Contiene 1 vulnerabilidad(es)",
+      "dependencias_directas": [],
+      "dependencias_transitivas": [],
+      "upload_time": "2023-01-01",
+      "summary": "A library with vulnerabilities"
+    },
+    {
+      "package": "abandoned-lib",
+      "version": "1.0.0",
+      "license": "MIT",
+      "aprobada": "No",
+      "motivo_rechazo": "Paquete sin mantenimiento documentado",
+      "dependencias_directas": [],
+      "dependencias_transitivas": [],
+      "upload_time": "2023-01-01",
+      "summary": "An abandoned library"
+    },
+    {
+      "package": "incomplete-lib",
+      "version": "1.0.0",
+      "license": null,
+      "aprobada": "En verificaci\u00f3n",
+      "motivo_rechazo": "Informaci\u00f3n incompleta: Licencia no documentada en PyPI; Informaci\u00f3n de mantenimiento no disponible",
+      "dependencias_directas": [],
+      "dependencias_transitivas": [],
+      "upload_time": null,
+      "summary": "Library with incomplete data"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-03-01T18:19:21.368527",
+  "vulnerabilities": [],
+  "packages": [
+    {
+      "package": "scipy",
+      "version": "1.10.0",
+      "license": "BSD"
+    },
+    {
+      "package": "numpy",
+      "version": "1.24.0",
+      "license": "BSD"
+    },
+    {
+      "package": "matplotlib",
+      "version": "3.7.0",
+      "license": "PSF"
+    },
+    {
+      "package": "pandas",
+      "version": "2.0.0",
+      "license": "BSD"
+    },
+    {
+      "package": "requests",
+      "version": "2.31.0",
+      "license": "Apache-2.0"
+    },
+    {
+      "package": "sklearn",
+      "version": "1.3.0",
+      "license": "BSD"
+    }
+  ],
+  "filtered_packages": []
+}

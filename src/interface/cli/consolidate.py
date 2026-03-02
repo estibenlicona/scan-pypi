@@ -119,11 +119,11 @@ def generate_consolidated_xlsx(
     
     ws.title = "Consolidated Packages"
     
-    # Define headers (same as regular XLSX report)
+    # Define headers
     headers = [
-        "Nombre", "Versión", "Licencia", "Aprobada", "Estado / Comentario",
-        "Dependencias Directas", "Dependencias Transitivas", "Dependencias Rechazadas",
-        "Fecha de Publicación", "URL", "Descripción"
+        "Nombre", "Aprobada", "Versión", "Fecha de Publicación",
+        "Últ. Fecha Publicación", "Últ. Commit GitHub",
+        "Licencia", "URL", "Dependencias", "Descripción"
     ]
     ws.append(headers)
     
@@ -190,16 +190,29 @@ def generate_consolidated_xlsx(
         
         rejection_reason = safe_value(pkg.get("motivo_rechazo", ""))
         
-        # Dependencies
-        dep_directas = format_deps(pkg.get("dependencias_directas", []))
-        dep_transitivas = format_deps(pkg.get("dependencias_transitivas", []))
-        dep_rechazadas = format_deps(pkg.get("dependencias_rechazadas", []))
+        # Dependencies (merge all types)
+        all_deps_parts: List[str] = []
+        for dep_key in ("dependencias_directas", "dependencias_transitivas", "dependencias_rechazadas"):
+            formatted = format_deps(pkg.get(dep_key, []))
+            if formatted != "N/A":
+                all_deps_parts.append(formatted)
+        dependencias = ", ".join(all_deps_parts) if all_deps_parts else "N/A"
         
         # Date formatting
         fecha_pub = pkg.get("upload_time") or pkg.get("upload_time_iso_8601") or ""
         if isinstance(fecha_pub, str) and "T" in fecha_pub:
             fecha_pub = fecha_pub.split("T")[0]
         fecha_pub = safe_value(fecha_pub)
+
+        latest_fecha = pkg.get("latest_upload_time") or ""
+        if isinstance(latest_fecha, str) and "T" in latest_fecha:
+            latest_fecha = latest_fecha.split("T")[0]
+        latest_fecha = safe_value(latest_fecha)
+
+        last_commit = pkg.get("last_commit_date") or ""
+        if isinstance(last_commit, str) and "T" in last_commit:
+            last_commit = last_commit.split("T")[0]
+        last_commit = safe_value(last_commit)
         
         # URL
         url = pkg.get("project_url") or pkg.get("home_page") or (f"https://pypi.org/project/{name}" if name != "N/A" else "")
@@ -217,15 +230,15 @@ def generate_consolidated_xlsx(
         approved_text = "Sí" if approved else "No"
         
         row_data: List[str] = [
-            name, version, license_info, approved_text, rejection_reason,
-            dep_directas, dep_transitivas, dep_rechazadas,
-            fecha_pub, url, descripcion
+            name, approved_text, version, fecha_pub,
+            latest_fecha, last_commit, license_info, url,
+            dependencias, descripcion
         ]
         ws.append(row_data)
         
-        # Apply conditional formatting to "Aprobada" column (column 4)
+        # Apply conditional formatting to "Aprobada" column (column 2)
         current_row = ws.max_row
-        aprobada_cell = ws.cell(row=current_row, column=4)
+        aprobada_cell = ws.cell(row=current_row, column=2)
         
         if approved:
             aprobada_cell.fill = approved_fill

@@ -1,14 +1,22 @@
-# Reporte consolidado generado automáticamente
+# === Outputs generados ===
 consolidated_report.json
+*.xlsx
+~$*
+
+# === Python ===
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
+
+# === Entornos virtuales ===
 env/
 .env
 venv/
 .venv/
+
+# === Herramientas ===
 pip-log.txt
 pip-delete-this-directory.txt
 .tox/
@@ -19,7 +27,18 @@ nosetests.xml
 coverage.xml
 *.cover
 *.log
-.git
 .mypy_cache
 .pytest_cache
 .hypothesis
+.ruff_cache
+
+# === Reportes e historiales ===
+reports_history/
+
+# === Cache de resolvers (tests) ===
+test_cache_resolvers/
+test_uv_cache/
+
+# === IDE ===
+.vscode/
+*.code-workspace

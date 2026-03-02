@@ -127,7 +127,8 @@ class XLSXReportAdapter:
             header = [
                 "Nombre", "Versión", "Licencia", "Aprobada", "Estado / Comentario",
                 "Dependencias Directas", "Dependencias Transitivas", "Dependencias Rechazadas",
-                "Fecha de Publicación", "URL", "Descripción"
+                "Fecha de Publicación", "Últ. Fecha Publicación",
+                "Últ. Commit GitHub", "URL", "Descripción"
             ]
             ws.append(header)
 
@@ -154,6 +155,16 @@ class XLSXReportAdapter:
                 if isinstance(fecha_pub, str) and "T" in fecha_pub:
                     fecha_pub = fecha_pub.split("T")[0]
                 fecha_pub = self._safe_cell_value(fecha_pub)
+
+                latest_fecha = pkg.get("latest_upload_time") or ""
+                if isinstance(latest_fecha, str) and "T" in latest_fecha:
+                    latest_fecha = latest_fecha.split("T")[0]
+                latest_fecha = self._safe_cell_value(latest_fecha)
+
+                last_commit = pkg.get("last_commit_date") or ""
+                if isinstance(last_commit, str) and "T" in last_commit:
+                    last_commit = last_commit.split("T")[0]
+                last_commit = self._safe_cell_value(last_commit)
                 
                 url = pkg.get("project_url") or pkg.get("home_page") or (f"https://pypi.org/project/{nombre}" if nombre and nombre != "N/A" else "")
                 url = self._safe_cell_value(url)
@@ -168,7 +179,7 @@ class XLSXReportAdapter:
                 row: List[str] = [
                     nombre, version, licencia, aprobada, estado_comentario,
                     dep_directas_str, dep_transitivas_str, dep_rechazadas_str,
-                    fecha_pub, url, descripcion
+                    fecha_pub, latest_fecha, last_commit, url, descripcion
                 ]
                 ws.append(row)
                 

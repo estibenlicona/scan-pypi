@@ -1,284 +1,472 @@
 """
-UV Dependency Resolver Adapter - Implements DependencyResolverPort using uv_resolver.
+UV Dependency Resolver Adapter - Implements DependencyResolverPort using uv CLI.
 
-This adapter provides 10-100x faster dependency resolution compared to pipgrip
-with intelligent caching to avoid redundant analysis.
+Uses ``uv pip compile`` as a subprocess to resolve dependency trees.
+No external Python package required — only the ``uv`` binary on PATH.
 """
 
 from __future__ import annotations
 import asyncio
+import hashlib
+import re
+import shutil
+import subprocess
 import time
-from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, cast
+
+import aiohttp
 
 from src.domain.entities import DependencyGraph
 from src.domain.ports import DependencyResolverPort, LoggerPort, CachePort
+from src.infrastructure.config.settings import APISettings
 from src.domain.services import GraphBuilder
 
-try:
-    from uv_resolver import DependencyAnalyzer, ResolveResult
-    UV_AVAILABLE = True
-except ImportError:
-    UV_AVAILABLE = False
-    DependencyAnalyzer = None  # type: ignore
-    ResolveResult = None  # type: ignore
+_UV_BIN: Optional[str] = shutil.which("uv")
 
 
 class UvDepResolverAdapter(DependencyResolverPort):
-    """Adapter for uv-based dependency resolution with intelligent caching."""
-    
-    def __init__(self, logger: LoggerPort, cache: CachePort, cache_dir: str = "./uv_cache") -> None:
+    """Adapter for uv-based dependency resolution via CLI subprocess."""
+
+    def __init__(
+        self,
+        logger: LoggerPort,
+        cache: CachePort,
+        cache_dir: str = "./uv_cache",
+        api_settings: Optional[APISettings] = None,
+    ) -> None:
         """
         Initialize UV dependency resolver adapter.
-        
+
         Args:
-            logger: Logger port for logging
-            cache: Cache port (not used, uv_resolver handles its own cache)
-            cache_dir: Directory for uv_resolver cache
-            
+            logger: Logger port for logging.
+            cache: Cache port for per-package caching.
+            cache_dir: Directory for uv internal cache (unused, kept
+                       for signature compatibility).
+            api_settings: Optional API settings for PyPI fallback.
+
         Raises:
-            RuntimeError: If uv_resolver is not installed
+            RuntimeError: If the ``uv`` binary is not found on PATH.
         """
-        if not UV_AVAILABLE:
+        if _UV_BIN is None:
             raise RuntimeError(
-                "uv_resolver is not installed. Install it with: pip install uv_resolver"
+                "uv is not installed or not on PATH. "
+                "Install it with: pip install uv"
             )
-        
+
         self.logger = logger
-        self.cache = cache  # Keep for interface compatibility
+        self.cache = cache
         self.graph_builder = GraphBuilder()
-        
-        # Initialize uv_resolver analyzer
-        self.cache_dir = Path(cache_dir)
-        self.analyzer = DependencyAnalyzer(
-            cache_dir=str(self.cache_dir),
-            auto_extract_subdeps=True
-        )
-        
-        self.logger.info(f"UV Dependency Resolver initialized with cache at {self.cache_dir}")
+        self.api_settings = api_settings or APISettings()
+
+        # Grab version for logging
+        version = self._get_uv_version()
+        self.logger.info(f"UV Dependency Resolver initialized ({version})")
     
-    async def resolve_dependencies(self, packages: List[str]) -> DependencyGraph:
+    # ── Public API ─────────────────────────────────────────────────
+
+    async def resolve_dependencies(
+        self, packages: List[str]
+    ) -> DependencyGraph:
         """
-        Resolve dependencies using uv with intelligent caching.
-        
+        Resolve dependencies using ``uv pip compile``.
+
         Args:
-            packages: List of package specifications (e.g., 'requests==2.31.0')
-            
+            packages: Package specifications (e.g. ``['requests==2.31.0']``).
+
         Returns:
-            DependencyGraph containing all resolved dependencies
-            
+            DependencyGraph with all resolved dependencies.
+
         Raises:
-            ValueError: If package list is invalid
-            RuntimeError: If resolution fails
+            ValueError: If the package list is invalid.
+            RuntimeError: If resolution fails.
         """
-        self.logger.info(f"Resolving dependencies for {len(packages)} packages using UV")
-        
+        self.logger.info(
+            f"Resolving dependencies for {len(packages)} packages using UV"
+        )
         try:
-            # Validate packages
             self._validate_packages(packages)
-            
-            # Resolve dependencies using uv (with automatic caching)
             dependency_data = await self._run_uv_resolver(packages)
-            
-            # Build dependency graph from resolved requirements
             graph = self.graph_builder.build_dependency_graph(dependency_data)
-            
-            self.logger.info(f"Resolved {len(graph.get_all_packages())} total packages")
+            self.logger.info(
+                f"Resolved {len(graph.get_all_packages())} total packages"
+            )
             return graph
-            
         except Exception as e:
             self.logger.error(f"Dependency resolution failed: {e}")
             raise
-    
+
+    # ── Internals ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _get_uv_version() -> str:
+        """Return the ``uv --version`` string."""
+        try:
+            proc = subprocess.run(
+                ["uv", "--version"],
+                capture_output=True, text=True, timeout=10,
+            )
+            return proc.stdout.strip() or "uv (unknown version)"
+        except Exception:
+            return "uv (version check failed)"
+
     def _validate_packages(self, packages: List[str]) -> None:
-        """
-        Validate package list format.
-        
-        Args:
-            packages: List of package specifications
-            
-        Raises:
-            ValueError: If package list or format is invalid
-        """
+        """Validate package list format."""
         if not packages:
             raise ValueError("Package list cannot be empty")
-        
         for pkg in packages:
             pkg = pkg.strip()
             if not pkg:
                 continue
-            
-            # Basic security check
-            if ';' in pkg or '&' in pkg or '|' in pkg:
-                raise ValueError(f"Invalid package format (shell characters not allowed): {pkg}")
-    
-    async def _run_uv_resolver(self, packages: List[str]) -> Dict[str, Any]:
-        """
-        Resolve dependencies using uv_resolver with parallel execution.
-        
-        uv_resolver handles its own caching automatically, so we don't need
-        to implement cache logic here.
-        
-        Args:
-            packages: List of package specifications
-            
-        Returns:
-            Combined dependency structure for all packages
-        """
+            if ";" in pkg or "&" in pkg or "|" in pkg:
+                raise ValueError(
+                    f"Invalid package format "
+                    f"(shell characters not allowed): {pkg}"
+                )
+
+    # ── Resolution logic ─────────────────────────────────────────────
+
+    async def _run_uv_resolver(
+        self, packages: List[str]
+    ) -> Dict[str, Any]:
+        """Resolve each package in parallel via ``uv pip compile``."""
         start_time = time.time()
-        
-        # Resolve packages in parallel using asyncio
-        self.logger.debug(f"Resolving {len(packages)} packages in parallel with UV")
-        
-        # Create tasks for parallel resolution
+        self.logger.debug(
+            f"Resolving {len(packages)} packages in parallel with UV"
+        )
+
         tasks = [
-            self._resolve_single_package(pkg)
-            for pkg in packages
+            self._resolve_single_package(pkg) for pkg in packages
         ]
-        
-        # Wait for all resolutions to complete
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Process results
-        all_dependencies = []
+
+        all_dependencies: List[Dict[str, Any]] = []
         cache_hits = 0
         cache_misses = 0
-        
+
         for i, result in enumerate(results):
             package = packages[i]
-            
+
             if isinstance(result, Exception):
-                self.logger.warning(f"Failed to resolve package {package}: {result}")
-                # Add empty entry for failed package
+                self.logger.warning(
+                    f"Failed to resolve package {package}: {result}"
+                )
+                parts = package.split("==", 1)
+                pkg_name = parts[0]
+                pkg_version = parts[1] if len(parts) == 2 else "unknown"
+
+                fallback_deps = await self._fetch_dependencies_from_pypi(
+                    pkg_name, pkg_version
+                )
+                if fallback_deps:
+                    self.logger.info(
+                        f"PyPI fallback resolved {len(fallback_deps)} "
+                        f"dependencies for {package}"
+                    )
+                else:
+                    self.logger.warning(
+                        f"PyPI fallback found no dependencies for {package}"
+                    )
                 all_dependencies.append({
-                    "name": package.split("==")[0] if "==" in package else package,
-                    "version": "unknown",
-                    "dependencies": []
+                    "name": pkg_name,
+                    "version": pkg_version,
+                    "dependencies": fallback_deps,
                 })
                 continue
-            
-            if result.from_cache:
+
+            # result is (dependency_entry, from_cache)
+            dependency_entry, from_cache = result
+            if from_cache:
                 cache_hits += 1
             else:
                 cache_misses += 1
-            
-            # Convert uv_resolver result to internal format
-            dependency_entry = self._convert_uv_result_to_internal(result)
             all_dependencies.append(dependency_entry)
-        
+
         elapsed = time.time() - start_time
         self.logger.info(
             f"UV resolution completed in {elapsed:.2f}s "
             f"(Cache hits: {cache_hits}, Cache misses: {cache_misses})"
         )
-        
         return {"dependencies": all_dependencies}
-    
-    async def _resolve_single_package(self, package: str) -> ResolveResult:
+
+    async def _resolve_single_package(
+        self, package: str
+    ) -> tuple[Dict[str, Any], bool]:
         """
-        Resolve a single package using uv_resolver.
-        
-        This runs in an executor to avoid blocking the async event loop
-        since uv_resolver's resolve() is synchronous.
-        
-        Args:
-            package: Package specification (e.g., 'requests==2.31.0')
-            
+        Resolve a single package, checking the cache first.
+
         Returns:
-            ResolveResult from uv_resolver
-            
-        Raises:
-            RuntimeError: If resolution fails
+            Tuple of (dependency_entry, from_cache).
         """
-        loop = asyncio.get_event_loop()
-        
-        # Run synchronous resolve() in executor
-        result = await loop.run_in_executor(
-            None,
-            lambda: self.analyzer.resolve(package, silent=True)
+        cache_key = self._cache_key(package)
+        cached = await self.cache.get(cache_key)
+        if cached is not None:
+            self.logger.debug(f"Cache hit for {package}")
+            return cast(Dict[str, Any], cached), True
+
+        self.logger.debug(f"Cache miss for {package} — running uv")
+        entry = await self._compile_with_uv(package)
+
+        await self.cache.set(cache_key, entry, ttl_seconds=3600)
+        return entry, False
+
+    async def _compile_with_uv(
+        self, package: str, timeout_sec: int = 120
+    ) -> Dict[str, Any]:
+        """
+        Run ``uv pip compile`` for *package* and parse the output.
+
+        Args:
+            package: Package spec (e.g. ``requests==2.31.0``).
+            timeout_sec: Maximum time to wait for the process.
+
+        Returns:
+            Dict ``{"name", "version", "dependencies": [...]}``.
+        """
+        proc = await asyncio.create_subprocess_exec(
+            "uv", "pip", "compile",
+            "--no-header",
+            "--annotation-style=line",
+            "--quiet",
+            "-",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        
-        if not result.success:
-            raise RuntimeError(f"UV resolution failed for {package}: {result.error}")
-        
-        return result
-    
-    def _convert_uv_result_to_internal(self, result: ResolveResult) -> Dict[str, Any]:
-        """
-        Convert uv_resolver ResolveResult to internal dependency format.
-        
-        Args:
-            result: ResolveResult from uv_resolver
-            
-        Returns:
-            Dependency entry in internal format
-        """
-        # Extract package name and version from the tree
-        tree = result.tree
-        
-        return {
-            "name": tree.name,
-            "version": tree.version,
-            "dependencies": self._convert_tree_nodes(tree.dependencies)
-        }
-    
-    def _convert_tree_nodes(self, nodes: List[Any]) -> List[Dict[str, Any]]:
-        """
-        Recursively convert uv_resolver PackageNode tree to internal format.
-        
-        Args:
-            nodes: List of PackageNode objects
-            
-        Returns:
-            List of dependency dictionaries
-        """
-        dependencies = []
-        
-        for node in nodes:
-            dep_entry = {
-                "name": node.name,
-                "version": node.version,
-                "dependencies": self._convert_tree_nodes(node.dependencies)
-            }
-            dependencies.append(dep_entry)
-        
-        return dependencies
-    
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """
-        Get cache statistics from uv_resolver.
-        
-        Returns:
-            Dictionary with cache statistics
-        """
+
         try:
-            stats = self.analyzer.cache_stats()
-            return {
-                "total_packages": stats.get("total_packages", 0),
-                "total_dependencies": stats.get("total_dependencies", 0),
-                "cache_size_bytes": stats.get("size_bytes", 0),
-                "cache_dir": str(self.cache_dir)
-            }
-        except Exception as e:
-            self.logger.warning(f"Failed to get cache stats: {e}")
-            return {
-                "total_packages": 0,
-                "total_dependencies": 0,
-                "cache_size_bytes": 0,
-                "cache_dir": str(self.cache_dir)
-            }
-    
-    def clear_cache(self) -> int:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=package.encode()),
+                timeout=timeout_sec,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise RuntimeError(
+                f"uv pip compile timed out for {package} "
+                f"after {timeout_sec}s"
+            )
+
+        if proc.returncode != 0:
+            err = (stderr or b"").decode(errors="ignore").strip()
+            raise RuntimeError(
+                f"uv pip compile failed for {package}: {err}"
+            )
+
+        return self._parse_compile_output(package, stdout.decode())
+
+    # ── Output parsing ───────────────────────────────────────────────
+
+    def _parse_compile_output(
+        self, requested: str, output: str
+    ) -> Dict[str, Any]:
         """
-        Clear uv_resolver cache.
-        
+        Parse ``uv pip compile --annotation-style=line`` output into a
+        dependency tree.
+
+        Example output::
+
+            certifi==2024.2.2    # via requests
+            charset-normalizer==3.3.2  # via requests
+            requests==2.31.0
+            urllib3==2.2.0       # via requests
+        """
+        # 1. Parse all resolved packages and their "via" parents
+        packages: Dict[str, str] = {}          # normalised name → version
+        children_of: Dict[str, List[str]] = {} # parent → [child, ...]
+
+        current_pkg: Optional[str] = None
+
+        for raw_line in output.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            # "# via <parent>" annotation (may appear on its own line)
+            via_match = re.match(r"^#\s*via\s+(.+)$", line)
+            if via_match and current_pkg:
+                parent = self._normalise(via_match.group(1).strip())
+                if parent not in ("-r", "-", "stdin", "-r -"):
+                    children_of.setdefault(parent, []).append(current_pkg)
+                continue
+
+            # Inline annotation: "pkg==ver   # via parent"
+            inline_match = re.match(
+                r"^([A-Za-z0-9_.@-]+)==([^\s#]+)\s*(?:#\s*via\s+(.+))?$",
+                line,
+            )
+            if inline_match:
+                name = self._normalise(inline_match.group(1))
+                version = inline_match.group(2)
+                packages[name] = version
+                current_pkg = name
+
+                via_raw = (inline_match.group(3) or "").strip()
+                if via_raw:
+                    parent = self._normalise(via_raw)
+                    if parent not in ("-r", "-", "stdin", "-r -"):
+                        children_of.setdefault(parent, []).append(name)
+                continue
+
+        # 2. Identify the root package
+        req_name = self._normalise(requested.split("==")[0])
+        req_version = packages.get(
+            req_name,
+            requested.split("==")[1]
+            if "==" in requested
+            else "unknown",
+        )
+
+        # 3. Build tree recursively
+        visited: set[str] = set()
+
+        def _build(name: str) -> Dict[str, Any]:
+            visited.add(name)
+            deps: List[Dict[str, Any]] = []
+            for child in sorted(children_of.get(name, [])):
+                if child not in visited:
+                    deps.append(_build(child))
+            return {
+                "name": name,
+                "version": packages.get(name, "unknown"),
+                "dependencies": deps,
+            }
+
+        return _build(req_name)
+
+    @staticmethod
+    def _normalise(name: str) -> str:
+        """PEP 503 normalisation: lowercase, hyphens/underscores → dash."""
+        return re.sub(r"[-_.]+", "-", name.strip().lower())
+
+    @staticmethod
+    def _cache_key(package: str) -> str:
+        """SHA-256 cache key for a package spec."""
+        data = f"uv:pkg:{package.strip().lower()}".encode()
+        return hashlib.sha256(data).hexdigest()
+
+    # ── PyPI fallback for unresolvable packages ──────────────────────
+
+    async def _fetch_dependencies_from_pypi(
+        self, package_name: str, version: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch dependency list from PyPI metadata as fallback.
+
+        When UV cannot compile a package (e.g. missing C toolchain),
+        PyPI ``requires_dist`` still lists declared dependencies without
+        needing to build the wheel.  For each dependency whose version is
+        not pinned, we query PyPI again to resolve the latest release.
+
+        Args:
+            package_name: Name of the package.
+            version: Requested version.
+
         Returns:
-            Number of files deleted
+            List of dependency dicts ``{"name", "version", "dependencies"}``.
         """
+        requires_dist = await self._get_requires_dist_from_pypi(
+            package_name, version
+        )
+        if not requires_dist:
+            return []
+
+        parsed_deps: List[Dict[str, Any]] = []
+        for req_str in requires_dist:
+            parsed = self._parse_requires_dist_entry(req_str)
+            if parsed:
+                parsed_deps.append(parsed)
+
+        deps_to_resolve = [d for d in parsed_deps if d["version"] == "*"]
+        if deps_to_resolve:
+            self.logger.debug(
+                f"Resolving exact versions for {len(deps_to_resolve)} "
+                f"dependencies of {package_name}"
+            )
+            resolve_tasks = [
+                self._resolve_latest_version_from_pypi(dep["name"])
+                for dep in deps_to_resolve
+            ]
+            resolved_versions = await asyncio.gather(
+                *resolve_tasks, return_exceptions=True
+            )
+            for dep, ver_result in zip(deps_to_resolve, resolved_versions):
+                if isinstance(ver_result, str) and ver_result:
+                    dep["version"] = ver_result
+                else:
+                    self.logger.debug(
+                        f"Could not resolve version for {dep['name']}"
+                    )
+
+        return parsed_deps
+
+    async def _resolve_latest_version_from_pypi(
+        self, package_name: str
+    ) -> Optional[str]:
+        """Fetch the latest stable version of a package from PyPI."""
+        base_url = self.api_settings.pypi_base_url
+        url = f"{base_url}/{package_name}/json"
+        timeout = aiohttp.ClientTimeout(
+            total=self.api_settings.request_timeout
+        )
         try:
-            deleted = self.analyzer.clear_cache()
-            self.logger.info(f"Cleared UV cache: {deleted} files deleted")
-            return deleted
-        except Exception as e:
-            self.logger.warning(f"Failed to clear cache: {e}")
-            return 0
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return data.get("info", {}).get("version")
+        except Exception as exc:
+            self.logger.debug(
+                f"Failed to resolve latest version for "
+                f"{package_name}: {exc}"
+            )
+        return None
+
+    async def _get_requires_dist_from_pypi(
+        self, package_name: str, version: str
+    ) -> List[str]:
+        """Query PyPI JSON API and return the ``requires_dist`` list."""
+        base_url = self.api_settings.pypi_base_url
+        timeout = aiohttp.ClientTimeout(
+            total=self.api_settings.request_timeout
+        )
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            for url in (
+                f"{base_url}/{package_name}/{version}/json",
+                f"{base_url}/{package_name}/json",
+            ):
+                try:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            info = data.get("info", {})
+                            requires = info.get("requires_dist")
+                            if isinstance(requires, list) and requires:
+                                return requires
+                except Exception as exc:
+                    self.logger.debug(
+                        f"PyPI fallback request failed ({url}): {exc}"
+                    )
+        return []
+
+    @staticmethod
+    def _parse_requires_dist_entry(
+        entry: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Parse a single ``requires_dist`` string into a dependency dict.
+
+        Environment markers (after ``;``) are ignored — we list ALL
+        declared dependencies regardless of platform.
+        """
+        spec = entry.split(";")[0].strip()
+        if not spec:
+            return None
+        match = re.match(
+            r"^([A-Za-z0-9_.-]+)\s*(?:\(([^)]*)\)|([<>=!~].*))?", spec
+        )
+        if not match:
+            return None
+        name = match.group(1).strip()
+        version_raw = (match.group(2) or match.group(3) or "").strip()
+        exact = re.search(r"==\s*([A-Za-z0-9_.]+)", version_raw)
+        version = exact.group(1) if exact else "*"
+        return {"name": name, "version": version, "dependencies": []}

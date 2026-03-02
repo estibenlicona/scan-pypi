@@ -84,6 +84,8 @@ class PipGripAdapter(DependencyResolverPort):
         analysis requests. If some packages are cached and others aren't, only the
         missing ones are resolved and the results are merged.
         """
+        start_time = time.time()
+
         # Separate packages into cached and uncached
         cached_results: Dict[str, Dict[str, Any]] = {}
         uncached_packages: List[str] = []
@@ -136,6 +138,14 @@ class PipGripAdapter(DependencyResolverPort):
         
         # Merge cached and newly resolved results
         all_results: Dict[str, Dict[str, Any]] = {**cached_results, **uncached_results}
+
+        elapsed = time.time() - start_time
+        cache_hits = len(cached_results)
+        cache_misses = len(uncached_packages)
+        self.logger.info(
+            f"PipGrip resolution completed in {elapsed:.2f}s "
+            f"(Cache hits: {cache_hits}, Cache misses: {cache_misses})"
+        )
         
         # Combine individual package results into final dependency structure
         return self._combine_package_results(all_results, packages)
@@ -239,7 +249,9 @@ class PipGripAdapter(DependencyResolverPort):
                         name, version = pkg_name.split("==", 1)
                     else:
                         name = str(pkg_name)
-                        version = "unknown"
+                        # Extract version from original requested package spec
+                        req_parts = package.split("==", 1)
+                        version = req_parts[1] if len(req_parts) == 2 else "unknown"
                     
                     dependency_item = {
                         "name": name.strip(),
@@ -248,10 +260,13 @@ class PipGripAdapter(DependencyResolverPort):
                     }
                     all_dependencies.append(dependency_item)
                 else:
-                    # Fallback: create minimal dependency entry
+                    # Fallback: create minimal dependency entry, preserving requested version
+                    fallback_parts = package.split("==", 1)
+                    fallback_name = fallback_parts[0]
+                    fallback_version = fallback_parts[1] if len(fallback_parts) == 2 else "unknown"
                     all_dependencies.append({
-                        "name": package,
-                        "version": "unknown",
+                        "name": fallback_name,
+                        "version": fallback_version,
                         "dependencies": []
                     })
         

@@ -1,27 +1,38 @@
 """
-Application Use Cases - Orchestrate domain services and coordinate with external systems.
+Application Use Cases - Orchestrate domain services and coordinate
+with external systems.
 """
 
 from __future__ import annotations
 import asyncio
 import re
-from typing import List, Dict, Any
+import time
+from typing import List, Dict, Any, Optional
 
-from src.application.dtos import AnalysisRequest, AnalysisResultDTO, PackageDTO, VulnerabilityDTO, ReportDTO
-from src.domain.entities import DependencyInfo
+from src.application.dtos import (
+    AnalysisRequest, AnalysisResultDTO, PackageDTO,
+    VulnerabilityDTO, ReportDTO,
+)
 from src.domain.entities import (
-    Package, DependencyGraph, Vulnerability, DependencyNode,
-    Policy, AnalysisResult, SeverityLevel
+    Package, DependencyGraph, DependencyInfo, DependencyNode,
+    Vulnerability, Policy, AnalysisResult,
+    SeverityLevel, ApprovalStatus, ApprovalResult,
 )
 from src.domain.services import PolicyEngine, GraphBuilder, ReportBuilder
 from src.domain.services.approval_engine import ApprovalEngine
-from src.domain.models import PackageInfo, VulnerabilityInfo
-from src.domain.ports import (
-    DependencyResolverPort, VulnerabilityscannerPort, MetadataProviderPort,
-    CachePort, ReportSinkPort, LoggerPort
-)
 from src.domain.services.license_validator import LicenseValidator
-from src.infrastructure.config.settings import PolicySettings
+from src.domain.ports import (
+    DependencyResolverPort, VulnerabilityscannerPort,
+    MetadataProviderPort, CachePort, ReportSinkPort, LoggerPort,
+)
+
+# Default policy for when none is injected
+_DEFAULT_POLICY = Policy(
+    name="default",
+    description="Default analysis policy",
+    maintainability_years_threshold=2,
+)
+
 
 class AnalyzePackagesUseCase:
     """Use case for analyzing packages with dependencies and vulnerabilities."""
@@ -33,16 +44,16 @@ class AnalyzePackagesUseCase:
         metadata_provider: MetadataProviderPort,
         cache: CachePort,
         logger: LoggerPort,
-        policy_settings: PolicySettings | None = None
+        policy: Policy | None = None,
     ) -> None:
         self.dependency_resolver = dependency_resolver
         self.vulnerability_scanner = vulnerability_scanner
         self.metadata_provider = metadata_provider
         self.cache = cache
         self.logger = logger
-        self.policy_settings = policy_settings or PolicySettings.from_env()
-        self.approval_map = {}  # Store approval info for use in DTOs
-        self._last_result: AnalysisResult | None = None  # Keep last domain result
+        self.policy = policy or _DEFAULT_POLICY
+        self.approval_map: Dict[str, ApprovalResult] = {}
+        self._last_result: AnalysisResult | None = None
     
     async def execute(self, request: AnalysisRequest) -> AnalysisResultDTO:
         """Execute the complete package analysis."""
@@ -58,8 +69,8 @@ class AnalyzePackagesUseCase:
             dependencies_map = self._extract_dependencies_map_from_graph(dependency_graph)
             self.logger.debug(f"Built dependencies map with {len(dependencies_map)} packages")
             
-            # Step 2: Scan vulnerabilities
-            self.logger.debug("Scanning packages for vulnerabilities")
+            # Step 2: Scan vulnerabilities (always fresh, no cache)
+            vuln_start = time.time()
             requirements_content = self._graph_to_requirements(dependency_graph)
             vuln_data = await self.vulnerability_scanner.scan_vulnerabilities(
                 requirements_content
@@ -67,106 +78,65 @@ class AnalyzePackagesUseCase:
             
             # Step 3: Extract vulnerabilities
             vulnerabilities = self._extract_vulnerabilities(vuln_data)
-            self.logger.info(f"Found {len(vulnerabilities)} vulnerabilities")
+            vuln_elapsed = time.time() - vuln_start
+            self.logger.info(
+                f"Vulnerability scan completed in {vuln_elapsed:.2f}s "
+                f"(found {len(vulnerabilities)} vulnerabilities, no cache)"
+            )
             
             # Step 4: Enrich packages with metadata (run in parallel)
             all_packages = dependency_graph.get_all_packages()
+            # Reset cache stats before enrichment batch
+            if hasattr(self.metadata_provider, 'reset_cache_stats'):
+                self.metadata_provider.reset_cache_stats()
+
+            enrich_start = time.time()
             enriched_packages = await asyncio.gather(
                 *(self.metadata_provider.enrich_package_metadata(pkg) for pkg in all_packages)
             )
+            enrich_elapsed = time.time() - enrich_start
+
+            # Log enrichment cache stats
+            if hasattr(self.metadata_provider, 'get_cache_stats'):
+                stats = self.metadata_provider.get_cache_stats()
+                self.logger.info(
+                    f"Metadata enrichment completed in {enrich_elapsed:.2f}s "
+                    f"(PyPI cache hits: {stats['pypi_hits']}, "
+                    f"PyPI cache misses: {stats['pypi_misses']}, "
+                    f"GitHub cache hits: {stats['github_hits']}, "
+                    f"GitHub cache misses: {stats['github_misses']})"
+                )
+            else:
+                self.logger.info(
+                    f"Metadata enrichment completed in {enrich_elapsed:.2f}s "
+                    f"({len(enriched_packages)} packages)"
+                )
             
-            self.logger.info(f"Enriched {len(enriched_packages)} packages with metadata")
-            
-            # Step 4b: Apply license blocking policy BEFORE creating PackageInfo
-            max_sev = None
-            if self.policy_settings.max_vulnerability_severity:
-                try:
-                    max_sev = SeverityLevel(self.policy_settings.max_vulnerability_severity.lower())
-                except (ValueError, AttributeError):
-                    max_sev = None
-            
-            policy = Policy(
-                name="default",
-                description="Default analysis policy",
-                maintainability_years_threshold=self.policy_settings.maintainability_years_threshold,
-                blocked_licenses=self.policy_settings.blocked_licenses,
-                max_vulnerability_severity=max_sev
-            )
+            # Step 4b: Apply license blocking policy BEFORE approval
+            policy = self.policy
             
             policy_engine = PolicyEngine(policy)
             enriched_packages = policy_engine.evaluate_licenses(enriched_packages)
             self.logger.info("Applied license blocking policy")
             
-            # Step 5: Apply approval engine business rules
-            # Convert Vulnerability entities to VulnerabilityInfo domain models
-            vulnerability_infos: List[VulnerabilityInfo] = []
-            for vuln in vulnerabilities:
-                vuln_info = VulnerabilityInfo(
-                    id=vuln.id,
-                    title=vuln.title,
-                    description=vuln.description,
-                    severity=vuln.severity,
-                    package_name=vuln.package_name,
-                    version=vuln.version,
-                    cvss=None,
-                    fixed_in=[]
-                )
-                vulnerability_infos.append(vuln_info)
-            
-            # Convert enriched packages to PackageInfo for approval engine
-            package_info_list: List[PackageInfo] = []
-            for pkg in enriched_packages:
-                # Get dependencies from the map we built from the graph
-                pkg_deps = dependencies_map.get(pkg.identifier.name, [])
-                
-                # Extract license using proper cascading: license → classifiers → github_license → None
-                extracted_license = self._extract_license_cascade(pkg)
-                
-                # Use the resolved version (each package@version is independent)
-                pkg_version = pkg.identifier.version
-                
-                package_info = PackageInfo(
-                    name=pkg.identifier.name,
-                    version=pkg_version,
-                    latest_version=pkg.latest_version,
-                    license=extracted_license,
-                    upload_time=pkg.upload_time,
-                    summary=pkg.summary,
-                    home_page=pkg.home_page,
-                    author=pkg.author,
-                    author_email=pkg.author_email,
-                    maintainer=pkg.maintainer,
-                    maintainer_email=pkg.maintainer_email,
-                    keywords=pkg.keywords,
-                    classifiers=pkg.classifiers.copy() if pkg.classifiers else [],
-                    requires_dist=pkg.requires_dist.copy() if pkg.requires_dist else [],
-                    project_urls=pkg.project_urls.copy() if pkg.project_urls else {},
-                    github_url=pkg.github_url,
-                    dependencies=self._convert_dep_strings_to_dependency_info(pkg_deps),
-                    is_maintained=pkg.is_maintained(),
-                    license_rejected=pkg.license.is_rejected if pkg.license else False
-                )
-                package_info_list.append(package_info)
-            
-            # Apply approval rules using domain service
+            # Step 5: Apply approval engine directly on Package entities
             approval_engine = ApprovalEngine()
-            approved_packages_info = approval_engine.evaluate_all_packages(
-                package_info_list,
-                vulnerability_infos,
-                dependencies_map
+            approval_results = approval_engine.evaluate_all_packages(
+                enriched_packages, vulnerabilities, dependencies_map
             )
+            self.logger.info(f"Approval engine evaluated {len(approval_results)} packages")
             
-            self.logger.info(f"Approval engine evaluated {len(approved_packages_info)} packages")
-            
-            # Step 5b: Enrich dependencies with latest versions from PyPI
-            enriched_approved_packages = await self._enrich_dependencies_with_latest_version(
-                approved_packages_info
+            # Enrich approval dependency lists with latest versions
+            approval_results = await self._enrich_approval_dependencies(
+                approval_results
             )
             self.logger.info("Enriched dependencies with latest version information")
             
-            # Create a mapping of package identifier (name@version) to approval info for quick lookup
-            # Each package@version combination must be looked up independently
-            self.approval_map = {f"{pkg.name}@{pkg.version}": pkg for pkg in enriched_approved_packages}
+            # Store approval results keyed by name@version for DTO mapping
+            self.approval_map = {
+                f"{pkg.name}@{pkg.version}": approval_results.get(pkg.name)
+                for pkg in enriched_packages
+            }
             
             # Step 6: Build result (policy already applied earlier)
             maintained_packages = policy_engine.filter_maintained_packages(enriched_packages)
@@ -190,44 +160,11 @@ class AnalyzePackagesUseCase:
             raise
     
     def _extract_license_cascade(self, pkg: Package) -> str | None:
+        """Extract license via LicenseValidator cascade.
+
+        Delegates to domain service ``LicenseValidator.extract_from_package``.
         """
-        Extract license using advanced cascade with VALIDATION:
-        1. pkg.license.name (from PyPI 'license' field) - extract and validate
-        2. Classifiers (License :: classifiers) - extract and validate
-        3. None if no valid license found anywhere
-        
-        Uses regex patterns and heuristics to detect licenses.
-        Only returns licenses that are recognized by the validator.
-        """
-        # Level 1: Direct license field - try to extract with validation
-        if pkg.license and pkg.license.name:
-            license_name = pkg.license.name.strip()
-            extracted = LicenseValidator.extract_license(license_name)
-            if extracted:
-                return extracted
-        
-        # Level 2: Classifiers - extract and validate
-        if pkg.classifiers:
-            license_classifiers = [
-                c for c in pkg.classifiers 
-                if c.startswith("License ::")
-            ]
-            if license_classifiers:
-                # Extract from each classifier until we find a valid license
-                for classifier in license_classifiers:
-                    license_name = LicenseValidator.extract_from_classifier(classifier)
-                    if license_name:
-                        extracted = LicenseValidator.extract_license(license_name)
-                        if extracted:
-                            return extracted
-        
-        # Level 3: No valid license found
-        self.logger.debug(
-            f"No valid license found in cascade for {pkg.identifier.name}@{pkg.identifier.version}",
-            has_license_obj=pkg.license is not None,
-            has_classifiers=len(pkg.classifiers or []) > 0
-        )
-        return None
+        return LicenseValidator.extract_from_package(pkg)
     
     def _extract_dependencies_map_from_graph(
         self, graph: DependencyGraph
@@ -397,57 +334,27 @@ class AnalyzePackagesUseCase:
         
         return dependency_infos
     
-    async def _enrich_dependencies_with_latest_version(
-        self, 
-        packages: List[PackageInfo]
-    ) -> List[PackageInfo]:
-        """
-        Enrich all dependency DependencyInfo objects with latest_version from PyPI.
-        
-        Args:
-            packages: List of PackageInfo objects with dependencies
-            
-        Returns:
-            List of PackageInfo objects with enriched dependencies
-        """
-        enriched_packages: List[PackageInfo] = []
-        
-        for pkg in packages:
-            # Enrich each list of dependencies
-            enriched_deps = await self._enrich_dep_list(pkg.dependencies)
-            enriched_direct = await self._enrich_dep_list(pkg.dependencias_directas)
-            enriched_transitive = await self._enrich_dep_list(pkg.dependencias_transitivas)
-            
-            # Create new PackageInfo with enriched dependencies (using dataclass evolution)
-            enriched_pkg = PackageInfo(
-                name=pkg.name,
-                version=pkg.version,
-                latest_version=pkg.latest_version,
-                license=pkg.license,
-                upload_time=pkg.upload_time,
-                summary=pkg.summary,
-                home_page=pkg.home_page,
-                author=pkg.author,
-                author_email=pkg.author_email,
-                maintainer=pkg.maintainer,
-                maintainer_email=pkg.maintainer_email,
-                keywords=pkg.keywords,
-                classifiers=pkg.classifiers,
-                requires_dist=pkg.requires_dist,
-                project_urls=pkg.project_urls,
-                github_url=pkg.github_url,
-                dependencies=enriched_deps,
-                is_maintained=pkg.is_maintained,
-                license_rejected=pkg.license_rejected,
-                aprobada=pkg.aprobada,
-                motivo_rechazo=pkg.motivo_rechazo,
-                dependencias_directas=enriched_direct,
-                dependencias_transitivas=enriched_transitive,
-                dependencias_rechazadas=pkg.dependencias_rechazadas
+    async def _enrich_approval_dependencies(
+        self,
+        approvals: Dict[str, ApprovalResult],
+    ) -> Dict[str, ApprovalResult]:
+        """Enrich direct/transitive deps in approval results with latest versions."""
+        enriched: Dict[str, ApprovalResult] = {}
+        for name, result in approvals.items():
+            enriched_direct = await self._enrich_dep_list(
+                list(result.direct_dependencies)
             )
-            enriched_packages.append(enriched_pkg)
-        
-        return enriched_packages
+            enriched_transitive = await self._enrich_dep_list(
+                list(result.transitive_dependencies)
+            )
+            enriched[name] = ApprovalResult(
+                status=result.status,
+                rejection_reason=result.rejection_reason,
+                direct_dependencies=enriched_direct,
+                transitive_dependencies=enriched_transitive,
+                rejected_dependencies=list(result.rejected_dependencies),
+            )
+        return enriched
     
     async def _enrich_dep_list(
         self,
@@ -489,7 +396,7 @@ class AnalyzePackagesUseCase:
                 severity=v.severity.value,
                 package_name=v.package_name,
                 version=v.version,
-                license=v.license.name if v.license else None
+                license=None,
             )
             for v in result.vulnerabilities
         ]
@@ -507,25 +414,14 @@ class AnalyzePackagesUseCase:
     
     def _package_to_dto(self, package: Package) -> PackageDTO:
         """Convert domain package to DTO, enriched with approval info."""
-        pkg_name = package.identifier.name
-        pkg_version = package.identifier.version
-        
-        # Get approval info if available - lookup by full package@version identifier
-        pkg_key = f"{pkg_name}@{pkg_version}"
-        approval_info = self.approval_map.get(pkg_key)
-        
-        aprobada = approval_info.aprobada if approval_info else "En verificación"
-        motivo_rechazo = approval_info.motivo_rechazo if approval_info else None
-        dependencias_directas = approval_info.dependencias_directas if approval_info else []
-        dependencias_transitivas = approval_info.dependencias_transitivas if approval_info else []
-        dependencias_rechazadas = approval_info.dependencias_rechazadas if approval_info else []
-        
-        # Use cascading license extraction for reliable license info
-        license_name = self._extract_license_cascade(package)
-        
+        pkg_key = f"{package.name}@{package.version}"
+        approval: Optional[ApprovalResult] = self.approval_map.get(pkg_key)
+
+        license_name = LicenseValidator.extract_from_package(package)
+
         return PackageDTO(
-            name=package.identifier.name,
-            version=package.identifier.version,
+            name=package.name,
+            version=package.version,
             latest_version=package.latest_version,
             license=license_name,
             upload_time=package.upload_time,
@@ -540,48 +436,28 @@ class AnalyzePackagesUseCase:
             requires_dist=(package.requires_dist or []).copy(),
             project_urls=(package.project_urls or {}).copy(),
             github_url=package.github_url,
-            dependencies=package.dependencies,  # Already List[DependencyInfo]
+            dependencies=package.dependencies,
             is_maintained=package.is_maintained(),
-            license_rejected=package.license.is_rejected if package.license else False,
-            aprobada=aprobada,
-            motivo_rechazo=motivo_rechazo,
-            dependencias_directas=dependencias_directas,
-            dependencias_transitivas=dependencias_transitivas,
-            dependencias_rechazadas=dependencias_rechazadas,
-        )
-    
-    def _package_info_to_dto(self, package_info: PackageInfo) -> PackageDTO:
-        """Convert PackageInfo domain model to DTO."""
-        # Transform license to short format
-        short_license = self._short_license(
-            package_info.license or "—"
-        )
-        
-        return PackageDTO(
-            name=package_info.name,
-            version=package_info.version,
-            latest_version=package_info.latest_version,
-            license=short_license,
-            upload_time=package_info.upload_time,
-            summary=package_info.summary,
-            home_page=package_info.home_page,
-            author=package_info.author,
-            author_email=package_info.author_email,
-            maintainer=package_info.maintainer,
-            maintainer_email=package_info.maintainer_email,
-            keywords=package_info.keywords,
-            classifiers=package_info.classifiers.copy(),
-            requires_dist=package_info.requires_dist.copy(),
-            project_urls=package_info.project_urls.copy(),
-            github_url=package_info.github_url,
-            dependencies=package_info.dependencies.copy(),
-            is_maintained=package_info.is_maintained,
-            license_rejected=package_info.license_rejected,
-            aprobada=package_info.aprobada,
-            motivo_rechazo=package_info.motivo_rechazo,
-            dependencias_directas=package_info.dependencias_directas.copy(),
-            dependencias_transitivas=package_info.dependencias_transitivas.copy(),
-            dependencias_rechazadas=package_info.dependencias_rechazadas.copy(),
+            latest_upload_time=package.latest_upload_time,
+            last_commit_date=package.last_commit_date,
+            license_rejected=(
+                package.license.is_rejected if package.license else False
+            ),
+            aprobada=(
+                approval.status.value if approval else "En verificación"
+            ),
+            motivo_rechazo=(
+                approval.rejection_reason if approval else None
+            ),
+            dependencias_directas=(
+                list(approval.direct_dependencies) if approval else []
+            ),
+            dependencias_transitivas=(
+                list(approval.transitive_dependencies) if approval else []
+            ),
+            dependencias_rechazadas=(
+                list(approval.rejected_dependencies) if approval else []
+            ),
         )
     
     def _short_license(self, raw_license: str) -> str:
@@ -727,6 +603,8 @@ class BuildConsolidatedReportUseCase:
                 for dep in pkg.dependencies
             ],
             "is_maintained": pkg.is_maintained,
+            "latest_upload_time": pkg.latest_upload_time.isoformat() if pkg.latest_upload_time else None,
+            "last_commit_date": pkg.last_commit_date.isoformat() if pkg.last_commit_date else None,
             "license_rejected": pkg.license_rejected,
             "aprobada": pkg.aprobada,
             "motivo_rechazo": motivo_final,
