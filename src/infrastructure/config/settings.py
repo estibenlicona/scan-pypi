@@ -59,19 +59,23 @@ class APISettings:
     """External API configuration."""
     pypi_base_url: str = "https://pypi.org/pypi"
     github_base_url: str = "https://api.github.com"
-    github_token: Optional[str] = None  # GitHub Personal Access Token for higher rate limits
+    github_token: Optional[str] = None
     request_timeout: int = 10
     max_retries: int = 3
-    
+    private_index_url: Optional[str] = None
+    private_index_pat: Optional[str] = None
+
     @classmethod
     def from_env(cls) -> APISettings:
         """Create APISettings from environment variables."""
         return cls(
-            github_token=os.getenv("GITHUB_TOKEN"),  # Load from env if available
+            github_token=os.getenv("GITHUB_TOKEN"),
             pypi_base_url=os.getenv("PYPI_BASE_URL", "https://pypi.org/pypi"),
             github_base_url=os.getenv("GITHUB_BASE_URL", "https://api.github.com"),
             request_timeout=int(os.getenv("API_REQUEST_TIMEOUT", "10")),
-            max_retries=int(os.getenv("API_MAX_RETRIES", "3"))
+            max_retries=int(os.getenv("API_MAX_RETRIES", "3")),
+            private_index_url=os.getenv("PRIVATE_INDEX_URL"),
+            private_index_pat=os.getenv("PRIVATE_INDEX_PAT"),
         )
 
 

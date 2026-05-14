@@ -222,12 +222,31 @@ class UvDepResolverAdapter(DependencyResolverPort):
         Returns:
             Dict ``{"name", "version", "dependencies": [...]}``.
         """
-        proc = await asyncio.create_subprocess_exec(
+        cmd = [
             "uv", "pip", "compile",
             "--no-header",
             "--annotation-style=line",
             "--quiet",
-            "-",
+        ]
+
+        # Add private index when configured
+        if self.api_settings.private_index_url and self.api_settings.private_index_pat:
+            url = self.api_settings.private_index_url.rstrip("/")
+            pat = self.api_settings.private_index_pat
+            # Embed PAT as password in the URL (Azure DevOps accepts any username)
+            if "://" in url:
+                scheme, rest = url.split("://", 1)
+                url_with_creds = f"{scheme}://VssSessionToken:{pat}@{rest}"
+            else:
+                url_with_creds = url
+            cmd += ["--extra-index-url", url_with_creds]
+        elif self.api_settings.private_index_url:
+            cmd += ["--extra-index-url", self.api_settings.private_index_url]
+
+        cmd.append("-")
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
