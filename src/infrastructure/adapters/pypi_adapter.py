@@ -4,6 +4,7 @@ PyPI Client Adapter - Implements MetadataProviderPort using PyPI API.
 
 from __future__ import annotations
 import re
+import time
 import asyncio
 import aiohttp
 from typing import Optional, Dict, Any, List, Tuple, cast
@@ -45,6 +46,11 @@ class PyPIClientAdapter(MetadataProviderPort):
             max_delay_seconds=30.0,
             logger=logger
         )
+        # GitHub rate-limit state: tracks when the limit resets (Unix timestamp)
+        self._github_rate_limited_until: float = 0.0
+        self._github_rate_limit_warned: bool = False
+        # Semaphore limits concurrent GitHub requests to prevent burst rate-limiting
+        self._github_semaphore = asyncio.Semaphore(5)
     
     def get_cache_stats(self) -> Dict[str, int]:
         """Return current cache performance counters."""
@@ -301,51 +307,94 @@ class PyPIClientAdapter(MetadataProviderPort):
     
     async def _fetch_github_metadata(self, github_url: str) -> Optional[Dict[str, Any]]:
         """Fetch metadata from GitHub API with authentication support and automatic retries."""
-        # Extract repo info from GitHub URL
         repo_match = re.match(r'https://github\.com/([^/]+)/([^/]+)', github_url)
         if not repo_match:
             return None
-        
+
         owner, repo = repo_match.groups()
         api_url = f"{self.settings.github_base_url}/repos/{owner}/{repo}"
-        
-        # Build headers with authentication if token available
+
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
-        
-        # Add authentication token if available (increases rate limit from 60 to 5000 requests/hour)
+
+        # Add authentication token if available (increases rate limit from 60 to 5000/hour)
         if self.settings.github_token:
             headers["Authorization"] = f"Bearer {self.settings.github_token}"
-        
+
+        # Early check to skip GitHub calls when rate limit is still active
+        if time.time() < self._github_rate_limited_until:
+            self.logger.debug("GitHub API rate limit active — skipping GitHub call")
+            return None
+
         async def fetch_with_retry() -> Optional[Dict[str, Any]]:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)) as session:
-                async with session.get(api_url, headers=headers) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    elif response.status == 403:
-                        # Rate limit exceeded - do not retry for this error
-                        remaining = response.headers.get("X-RateLimit-Remaining", "0")
-                        reset_timestamp = response.headers.get("X-RateLimit-Reset", "unknown")
-                        self.logger.warning(
-                            f"GitHub API rate limit exceeded for {owner}/{repo}. "
-                            f"Remaining: {remaining}, Reset: {reset_timestamp}"
-                        )
-                        return None
-                    elif response.status == 404:
-                        # Repository not found - do not retry
-                        self.logger.warning(f"GitHub repository not found: {owner}/{repo}")
-                        return None
-                    else:
-                        self.logger.warning(f"GitHub API returned {response.status} for {owner}/{repo}")
-                        return None
-        
-        # Apply retry policy
+            async with self._github_semaphore:
+                # Re-check inside semaphore: another coroutine may have set the flag
+                if time.time() < self._github_rate_limited_until:
+                    self.logger.debug("GitHub API rate limit active — skipping GitHub call")
+                    return None
+
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)
+                ) as session:
+                    async with session.get(api_url, headers=headers) as response:
+                        if response.status == 200:
+                            return await response.json()
+
+                        elif response.status in (403, 429):
+                            remaining = response.headers.get("X-RateLimit-Remaining", "1")
+                            retry_after = response.headers.get("Retry-After")
+                            reset_ts = response.headers.get("X-RateLimit-Reset")
+
+                            is_rate_limit = (
+                                response.status == 429
+                                or remaining == "0"
+                                or retry_after is not None
+                            )
+
+                            if is_rate_limit:
+                                # Retry-After takes precedence over X-RateLimit-Reset
+                                if retry_after:
+                                    self._github_rate_limited_until = (
+                                        time.time() + float(retry_after) + 5
+                                    )
+                                elif reset_ts:
+                                    self._github_rate_limited_until = float(reset_ts) + 5
+                                else:
+                                    self._github_rate_limited_until = time.time() + 3600
+
+                                if not self._github_rate_limit_warned:
+                                    self._github_rate_limit_warned = True
+                                    self.logger.warning(
+                                        f"GitHub API rate limit exceeded. "
+                                        f"Remaining: {remaining}, Reset at: "
+                                        f"{reset_ts or 'unknown'}. "
+                                        f"GitHub calls paused until reset."
+                                    )
+                            else:
+                                self.logger.warning(
+                                    f"GitHub API 403 Forbidden for {owner}/{repo} "
+                                    f"(not a rate limit — check token permissions)"
+                                )
+                            return None
+
+                        elif response.status == 404:
+                            self.logger.warning(f"GitHub repository not found: {owner}/{repo}")
+                            return None
+
+                        else:
+                            self.logger.warning(
+                                f"GitHub API returned {response.status} for {owner}/{repo}"
+                            )
+                            return None
+
         try:
             return await self.retry_policy.execute(fetch_with_retry)
         except Exception as e:
-            self.logger.warning(f"Failed to fetch GitHub data for {owner}/{repo} after retries: {e}")
+            self.logger.warning(
+                f"Failed to fetch GitHub data for {owner}/{repo} after retries: {e}"
+            )
             return None
 
     async def _cache_github_license(

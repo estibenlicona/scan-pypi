@@ -5,6 +5,7 @@ Enriquece metadatos de dependencias con licencias, fechas de publicación y URLs
 Versión mejorada con validación estricta de tipos usando Pydantic.
 """
 
+import os
 import re
 import urllib3
 import requests
@@ -66,7 +67,16 @@ def get_github_license(repo_url: str) -> Optional[str]:
         repo = parts[-1]
         
         api_url = f"{GITHUB_API_BASE_URL}/{owner}/{repo}/license"
-        response = requests.get(api_url, timeout=REQUEST_TIMEOUT, verify=SSL_VERIFY)
+        github_token = os.getenv("GITHUB_TOKEN")
+        headers = {}
+        if github_token:
+            headers["Authorization"] = f"Bearer {github_token}"
+        response = requests.get(
+            api_url,
+            timeout=REQUEST_TIMEOUT,
+            verify=SSL_VERIFY,
+            headers=headers,
+        )
         
         if response.status_code == 200:
             data = response.json()
