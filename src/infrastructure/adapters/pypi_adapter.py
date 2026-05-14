@@ -49,6 +49,7 @@ class PyPIClientAdapter(MetadataProviderPort):
         # GitHub rate-limit state: tracks when the limit resets (Unix timestamp)
         self._github_rate_limited_until: float = 0.0
         self._github_rate_limit_warned: bool = False
+        self._github_token_invalid: bool = False
         # Semaphore limits concurrent GitHub requests to prevent burst rate-limiting
         self._github_semaphore = asyncio.Semaphore(5)
     
@@ -314,15 +315,6 @@ class PyPIClientAdapter(MetadataProviderPort):
         owner, repo = repo_match.groups()
         api_url = f"{self.settings.github_base_url}/repos/{owner}/{repo}"
 
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-
-        # Add authentication token if available (increases rate limit from 60 to 5000/hour)
-        if self.settings.github_token:
-            headers["Authorization"] = f"Bearer {self.settings.github_token}"
-
         # Early check to skip GitHub calls when rate limit is still active
         if time.time() < self._github_rate_limited_until:
             self.logger.debug("GitHub API rate limit active — skipping GitHub call")
@@ -335,12 +327,30 @@ class PyPIClientAdapter(MetadataProviderPort):
                     self.logger.debug("GitHub API rate limit active — skipping GitHub call")
                     return None
 
+                # Build headers here so token-invalid flag is always current
+                headers: Dict[str, str] = {
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                }
+                if self.settings.github_token and not self._github_token_invalid:
+                    headers["Authorization"] = f"Bearer {self.settings.github_token}"
+
                 async with aiohttp.ClientSession(
                     timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)
                 ) as session:
                     async with session.get(api_url, headers=headers) as response:
                         if response.status == 200:
                             return await response.json()
+
+                        elif response.status == 401:
+                            if not self._github_token_invalid:
+                                self._github_token_invalid = True
+                                self.logger.warning(
+                                    "GitHub token is invalid or expired (401 Unauthorized). "
+                                    "GitHub metadata will be skipped. "
+                                    "Update GITHUB_TOKEN in .env to fix this."
+                                )
+                            return None
 
                         elif response.status in (403, 429):
                             remaining = response.headers.get("X-RateLimit-Remaining", "1")
