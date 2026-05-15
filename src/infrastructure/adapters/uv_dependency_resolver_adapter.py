@@ -2,15 +2,20 @@
 UV Dependency Resolver Adapter - Implements DependencyResolverPort using uv CLI.
 
 Uses ``uv pip compile`` as a subprocess to resolve dependency trees.
-No external Python package required — only the ``uv`` binary on PATH.
+The ``uv`` binary is located in the following order:
+    1. Bundled alongside the PyInstaller executable (``sys._MEIPASS``
+       or the directory of ``sys.executable``) when running frozen.
+    2. The system ``PATH``.
 """
 
 from __future__ import annotations
 import asyncio
 import hashlib
+import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from typing import List, Dict, Any, Optional, cast
 
@@ -21,7 +26,34 @@ from src.domain.ports import DependencyResolverPort, LoggerPort, CachePort
 from src.infrastructure.config.settings import APISettings
 from src.domain.services import GraphBuilder
 
-_UV_BIN: Optional[str] = shutil.which("uv")
+
+def _find_uv_binary() -> Optional[str]:
+    """Locate the ``uv`` binary.
+
+    When running as a PyInstaller bundle, look inside the extraction
+    directory (``sys._MEIPASS``) and next to the executable first so the
+    end user does not need ``uv`` installed on the system. Fall back to
+    the regular ``PATH`` lookup otherwise.
+    """
+    candidate_names = ("uv.exe", "uv") if os.name == "nt" else ("uv", "uv.exe")
+
+    search_dirs: List[str] = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            search_dirs.append(meipass)
+        search_dirs.append(os.path.dirname(sys.executable))
+
+    for directory in search_dirs:
+        for name in candidate_names:
+            candidate = os.path.join(directory, name)
+            if os.path.isfile(candidate):
+                return candidate
+
+    return shutil.which("uv")
+
+
+_UV_BIN: Optional[str] = _find_uv_binary()
 
 
 class UvDepResolverAdapter(DependencyResolverPort):
@@ -45,7 +77,7 @@ class UvDepResolverAdapter(DependencyResolverPort):
             api_settings: Optional API settings for PyPI fallback.
 
         Raises:
-            RuntimeError: If the ``uv`` binary is not found on PATH.
+            RuntimeError: If the ``uv`` binary is not found.
         """
         if _UV_BIN is None:
             raise RuntimeError(
@@ -100,9 +132,11 @@ class UvDepResolverAdapter(DependencyResolverPort):
     @staticmethod
     def _get_uv_version() -> str:
         """Return the ``uv --version`` string."""
+        if _UV_BIN is None:
+            return "uv (not found)"
         try:
             proc = subprocess.run(
-                ["uv", "--version"],
+                [_UV_BIN, "--version"],
                 capture_output=True, text=True, timeout=10,
             )
             return proc.stdout.strip() or "uv (unknown version)"
@@ -223,7 +257,7 @@ class UvDepResolverAdapter(DependencyResolverPort):
             Dict ``{"name", "version", "dependencies": [...]}``.
         """
         cmd = [
-            "uv", "pip", "compile",
+            _UV_BIN, "pip", "compile",
             "--no-header",
             "--annotation-style=line",
             "--quiet",
