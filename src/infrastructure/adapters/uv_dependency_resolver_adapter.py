@@ -8,9 +8,11 @@ No external Python package required — only the ``uv`` binary on PATH.
 from __future__ import annotations
 import asyncio
 import hashlib
+import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from typing import List, Dict, Any, Optional, cast
 
@@ -20,8 +22,27 @@ from src.domain.entities import DependencyGraph
 from src.domain.ports import DependencyResolverPort, LoggerPort, CachePort
 from src.infrastructure.config.settings import APISettings
 from src.domain.services import GraphBuilder
+from src.infrastructure.adapters.http_session import make_client_session
 
-_UV_BIN: Optional[str] = shutil.which("uv")
+
+def _resolve_uv_bin() -> Optional[str]:
+    """Locate the ``uv`` binary, preferring the one bundled by PyInstaller.
+
+    When running as a frozen executable, ``uv`` is shipped inside the bundle
+    (see ``pyscan.spec``) so the program is self-contained. In development
+    (non-frozen) we fall back to the ``uv`` on PATH.
+    """
+    if getattr(sys, "frozen", False):
+        bundled = os.path.join(
+            getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)),
+            "uv.exe" if os.name == "nt" else "uv",
+        )
+        if os.path.exists(bundled):
+            return bundled
+    return shutil.which("uv")
+
+
+_UV_BIN: Optional[str] = _resolve_uv_bin()
 
 
 class UvDepResolverAdapter(DependencyResolverPort):
@@ -102,7 +123,7 @@ class UvDepResolverAdapter(DependencyResolverPort):
         """Return the ``uv --version`` string."""
         try:
             proc = subprocess.run(
-                ["uv", "--version"],
+                [_UV_BIN, "--version"],
                 capture_output=True, text=True, timeout=10,
             )
             return proc.stdout.strip() or "uv (unknown version)"
@@ -223,7 +244,7 @@ class UvDepResolverAdapter(DependencyResolverPort):
             Dict ``{"name", "version", "dependencies": [...]}``.
         """
         cmd = [
-            "uv", "pip", "compile",
+            _UV_BIN, "pip", "compile",
             "--no-header",
             "--annotation-style=line",
             "--quiet",
@@ -427,7 +448,7 @@ class UvDepResolverAdapter(DependencyResolverPort):
             total=self.api_settings.request_timeout
         )
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with make_client_session(timeout=timeout) as session:
                 async with session.get(url) as resp:
                     if resp.status == 200:
                         data = await resp.json()

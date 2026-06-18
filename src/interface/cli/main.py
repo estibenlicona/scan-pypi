@@ -11,72 +11,18 @@ import asyncio
 import sys
 import re
 import argparse
-import shutil
-from datetime import datetime
 from typing import List
 from pathlib import Path
 
 from src.application.dtos import AnalysisRequest
 from src.application.bootstrap import ApplicationFactory
 from src.infrastructure.adapters.markdown_report_adapter import MarkdownReportAdapter
-from src.infrastructure.adapters.xlsx_report_adapter import XLSXReportAdapter
 from src.infrastructure.adapters.logger_adapter import LoggerAdapter
 from src.infrastructure.config.settings import LoggingSettings
 
 
-def generate_xlsx_only(report_path: str = "consolidated_report.json") -> None:
-    """Generate XLSX report from existing consolidated report."""
-    logging_settings = LoggingSettings()
-    logger = LoggerAdapter(logging_settings)
-    xlsx_adapter = XLSXReportAdapter(logger)
-
-    if xlsx_adapter.generate_xlsx(report_path, "packages.xlsx"):
-        print("[OK] XLSX report generated: packages.xlsx")
-        archive_reports(report_path, "packages.xlsx")
-        sys.exit(0)
-    else:
-        print("[ERROR] Failed to generate XLSX report", file=sys.stderr)
-        sys.exit(1)
-
-
 class RequirementsFileError(Exception):
     """Raised when the requirements file is missing or contains no packages."""
-
-
-def archive_reports(
-    json_report_path: str | Path,
-    xlsx_report_path: str | Path,
-    base_directory: str | Path = "reports_history",
-) -> Path | None:
-    """Copy generated reports into a timestamped folder for historical tracking."""
-
-    json_path = Path(json_report_path)
-    xlsx_path = Path(xlsx_report_path)
-
-    if not json_path.exists():
-        print(f"[ARCHIVE] Skipped: JSON report not found at {json_path}")
-        return None
-
-    if not xlsx_path.exists():
-        print(f"[ARCHIVE] Skipped: XLSX report not found at {xlsx_path}")
-        return None
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_dir = Path(base_directory)
-    archive_dir = base_dir / timestamp
-
-    if archive_dir.exists():
-        # Extremely rare collision (same second). Append microseconds to avoid overwrite.
-        unique_suffix = datetime.now().strftime("%f")
-        archive_dir = base_dir / f"{timestamp}_{unique_suffix}"
-
-    archive_dir.mkdir(parents=True, exist_ok=False)
-
-    shutil.copy2(json_path, archive_dir / json_path.name)
-    shutil.copy2(xlsx_path, archive_dir / xlsx_path.name)
-
-    print(f"[ARCHIVE] Reports copied to: {archive_dir}")
-    return archive_dir
 
 
 def read_requirements_file(path: str | Path = "requirements.scan.txt") -> List[str]:
@@ -160,20 +106,7 @@ async def run_analysis(libraries: List[str], generate_markdown: bool = False) ->
         # Present results to user (CLI responsibility)
         print(f"[OK] Analysis complete: {len(report.packages)} packages analyzed")
         print(f"[REPORT] Report saved to: {container.settings.report.output_path}")
-        
-        # Auto-generate XLSX report
-        xlsx_adapter = XLSXReportAdapter(container.logger)
-        if xlsx_adapter.generate_xlsx(
-            container.settings.report.output_path,
-            "packages.xlsx",
-            root_libraries=libraries,
-        ):
-            print("[XLSX] Report generated: packages.xlsx")
-            archive_reports(
-                container.settings.report.output_path,
-                "packages.xlsx",
-            )
-        
+
         # Generate markdown if requested
         if generate_markdown:
             markdown_adapter = MarkdownReportAdapter(container.logger)
@@ -207,24 +140,13 @@ def generate_markdown_only(report_path: str = "consolidated_report.json") -> Non
 ## CSV adapter removed
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser for the CLI."""
-    parser = argparse.ArgumentParser(
-        prog="scan",
-        description=(
-            "PyPI Package Scanner — analiza dependencias, "
-            "vulnerabilidades y licencias."
-        ),
-        usage="scan <paquete[==version]> [...] [opciones]",
-        epilog=(
-            "Ejemplos:\n"
-            "  scan requests==2.28.0\n"
-            "  scan flask django==4.2\n"
-            "  scan -f requirements.scan.txt\n"
-            "  scan requests --markdown\n"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+def add_scan_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Add the scan arguments to a parser.
+
+    Shared between the standalone scan parser (``python -m src.interface.cli``)
+    and the ``run`` subcommand of the packaged executable, so both expose the
+    exact same options.
+    """
     parser.add_argument(
         "packages",
         nargs="*",
@@ -248,17 +170,33 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Solo generar Markdown desde consolidated_report.json",
     )
     parser.add_argument(
-        "--xlsx",
-        action="store_true",
-        help="Solo generar Excel desde consolidated_report.json",
-    )
-    parser.add_argument(
         "--report",
         type=str,
         default="consolidated_report.json",
-        help="Ruta al JSON de reporte (para --markdown-only / --xlsx)",
+        help="Ruta al JSON de reporte (para --markdown-only)",
     )
     return parser
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the standalone argument parser for the scan command."""
+    parser = argparse.ArgumentParser(
+        prog="scan",
+        description=(
+            "PyPI Package Scanner — analiza dependencias, "
+            "vulnerabilidades y licencias."
+        ),
+        usage="scan <paquete[==version]> [...] [opciones]",
+        epilog=(
+            "Ejemplos:\n"
+            "  scan requests==2.28.0\n"
+            "  scan flask django==4.2\n"
+            "  scan -f requirements.scan.txt\n"
+            "  scan requests --markdown\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    return add_scan_arguments(parser)
 
 
 def _resolve_libraries(args: argparse.Namespace) -> List[str]:
@@ -295,17 +233,15 @@ def _resolve_libraries(args: argparse.Namespace) -> List[str]:
     sys.exit(1)
 
 
-def main() -> None:
-    """Main CLI entry point."""
-    parser = _build_parser()
-    args = parser.parse_args()
+def run_command(args: argparse.Namespace) -> None:
+    """Execute the scan command from parsed arguments.
 
+    Shared by the standalone CLI and the ``run`` subcommand so both behave
+    identically once arguments are parsed.
+    """
     # Report-only modes (no analysis)
     if args.markdown_only:
         generate_markdown_only(args.report)
-        return
-    if args.xlsx:
-        generate_xlsx_only(args.report)
         return
 
     try:
@@ -323,6 +259,12 @@ def main() -> None:
     except Exception as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def main() -> None:
+    """Main CLI entry point for the standalone scan command."""
+    args = _build_parser().parse_args()
+    run_command(args)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ from src.domain.ports import MetadataProviderPort, LoggerPort, CachePort
 from src.domain.services.license_validator import LicenseValidator
 from src.infrastructure.config.settings import APISettings
 from src.infrastructure.utilities.retry_policy import RetryPolicy
+from src.infrastructure.adapters.http_session import make_client_session
 
 
 class PyPIClientAdapter(MetadataProviderPort):
@@ -212,7 +213,7 @@ class PyPIClientAdapter(MetadataProviderPort):
             # First, try to fetch the specific version
             url = f"{self.settings.pypi_base_url}/{package_name}/{version}/json"
             
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)) as session:
+            async with make_client_session(timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)) as session:
                 try:
                     async with session.get(url) as response:
                         if response.status == 200:
@@ -266,7 +267,7 @@ class PyPIClientAdapter(MetadataProviderPort):
         async def fetch_with_retry() -> Tuple[Optional[str], Optional[datetime]]:
             url = f"{self.settings.pypi_base_url}/{package_name}/json"
 
-            async with aiohttp.ClientSession(
+            async with make_client_session(
                 timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)
             ) as session:
                 async with session.get(url) as response:
@@ -335,7 +336,7 @@ class PyPIClientAdapter(MetadataProviderPort):
                 if self.settings.github_token and not self._github_token_invalid:
                     headers["Authorization"] = f"Bearer {self.settings.github_token}"
 
-                async with aiohttp.ClientSession(
+                async with make_client_session(
                     timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout)
                 ) as session:
                     async with session.get(api_url, headers=headers) as response:

@@ -1,6 +1,0 @@
-# Lista de paquetes a escanear (uno por línea)
-# Solo versiones exactas (==) o sin versión
-# Ejemplos:
-# requests==2.28.0
-# flask
-# django==4.2

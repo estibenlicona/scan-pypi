@@ -1,5 +1,6 @@
 # === Outputs generados ===
 consolidated_report.json
+report.html
 *.xlsx
 ~$*
 
@@ -31,6 +32,10 @@ coverage.xml
 .pytest_cache
 .hypothesis
 .ruff_cache
+
+# === Build / distribución (PyInstaller) ===
+build/
+dist/
 
 # === Reportes e historiales ===
 reports_history/

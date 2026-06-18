@@ -61,7 +61,6 @@ class APISettings:
     github_base_url: str = "https://api.github.com"
     github_token: Optional[str] = None
     request_timeout: int = 10
-    max_retries: int = 3
     private_index_url: Optional[str] = None
     private_index_pat: Optional[str] = None
 
@@ -73,7 +72,6 @@ class APISettings:
             pypi_base_url=os.getenv("PYPI_BASE_URL", "https://pypi.org/pypi"),
             github_base_url=os.getenv("GITHUB_BASE_URL", "https://api.github.com"),
             request_timeout=int(os.getenv("API_REQUEST_TIMEOUT", "10")),
-            max_retries=int(os.getenv("API_MAX_RETRIES", "3")),
             private_index_url=os.getenv("PRIVATE_INDEX_URL"),
             private_index_pat=os.getenv("PRIVATE_INDEX_PAT"),
         )
@@ -83,16 +81,12 @@ class APISettings:
 class ReportSettings:
     """Report generation configuration."""
     output_path: str = "consolidated_report.json"
-    format_type: str = "json"
-    include_summary: bool = True
-    
+
     @classmethod
     def from_env(cls) -> ReportSettings:
         """Create ReportSettings from environment variables."""
         return cls(
             output_path=os.getenv("REPORT_OUTPUT_PATH", "consolidated_report.json"),
-            format_type=os.getenv("REPORT_FORMAT", "json"),
-            include_summary=os.getenv("REPORT_INCLUDE_SUMMARY", "true").lower() == "true"
         )
 
 
@@ -119,8 +113,7 @@ class Settings:
     api: APISettings
     report: ReportSettings
     logging: LoggingSettings
-    dependency_resolver_type: str = "uv"  # "uv" or "pipgrip"
-    
+
     @classmethod
     def from_env(cls) -> Settings:
         """Create complete Settings from environment variables."""
@@ -130,7 +123,6 @@ class Settings:
             api=APISettings.from_env(),
             report=ReportSettings.from_env(),
             logging=LoggingSettings.from_env(),
-            dependency_resolver_type=os.getenv("DEPENDENCY_RESOLVER", "uv").lower()
         )
 
 

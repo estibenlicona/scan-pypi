@@ -13,6 +13,7 @@ import aiohttp
 
 from src.domain.ports import VulnerabilityscannerPort, LoggerPort
 from src.domain.entities import Vulnerability, SeverityLevel
+from src.infrastructure.adapters.http_session import make_client_session
 
 
 class OSVAdapter(VulnerabilityscannerPort):
@@ -54,7 +55,7 @@ class OSVAdapter(VulnerabilityscannerPort):
         
         vulnerabilities_map: Dict[str, List[Dict[str, Any]]] = {}
         
-        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+        async with make_client_session(timeout=self.timeout) as session:
             # Process packages in batches
             for i in range(0, len(packages), self.batch_size):
                 batch = packages[i:i + self.batch_size]

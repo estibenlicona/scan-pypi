@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent
-SPEC_FILE = PROJECT_ROOT / "pypi_scanner.spec"
+SPEC_FILE = PROJECT_ROOT / "pyscan.spec"
 DIST_DIR = PROJECT_ROOT / "dist"
 BUILD_DIR = PROJECT_ROOT / "build"
 OUTPUT_DIR = DIST_DIR / "pypi-scanner"

@@ -12,6 +12,7 @@ from src.domain.entities import AnalysisResult, Package
 from src.domain.ports import ReportSinkPort, LoggerPort
 from src.infrastructure.config.settings import ReportSettings
 from src.application.dtos import ReportDTO
+from src.infrastructure.adapters.report_merge import merge_report
 
 
 class FileReportSinkAdapter(ReportSinkPort):
@@ -40,20 +41,42 @@ class FileReportSinkAdapter(ReportSinkPort):
             else:
                 # Fallback for other dataclasses
                 report_data = self._convert_to_dict(result)
-            
+
+            # Upsert into the master report: the consolidated JSON is the single
+            # source of truth, so merge with any existing file (accumulating
+            # packages and preserving manual approvals) instead of overwriting.
+            if format_type.lower() == "json":
+                existing = self._load_existing(output_path)
+                report_data = merge_report(existing, report_data)
+
             # Save to file
             with open(output_path, 'w', encoding='utf-8') as f:
                 if format_type.lower() == "json":
                     json.dump(report_data, f, indent=2, ensure_ascii=False)
                 else:
                     f.write(str(report_data))
-            
+
             self.logger.info(f"Report saved to {output_path}")
             return os.path.abspath(output_path)
             
         except Exception as e:
             self.logger.error(f"Failed to save report: {e}")
             raise
+
+    def _load_existing(self, output_path: str) -> Optional[dict[str, Any]]:
+        """Load the existing master report if present, else None."""
+        if not os.path.exists(output_path):
+            return None
+        try:
+            with open(output_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else None
+        except (json.JSONDecodeError, OSError) as e:
+            self.logger.warning(
+                f"Could not read existing report at {output_path}, "
+                f"starting fresh: {e}"
+            )
+            return None
 
     async def load_report(self, location: str) -> Optional[AnalysisResult]:
         """Load analysis result from file system."""

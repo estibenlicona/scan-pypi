@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PyPI Scanner — Reporte de paquetes</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #273449;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --ok: #22c55e;
+    --ok-bg: #14321f;
+    --no: #f97316;
+    --no-bg: #3a2410;
+    --rev: #eab308;
+    --rev-bg: #3a3110;
+    --manual: #a78bfa;
+    --manual-bg: #2a2342;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif; font-size: 14px;
+  }
+  header {
+    padding: 20px 28px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #15213b, var(--bg));
+  }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 16px; min-width: 110px;
+  }
+  .stat .num { font-size: 22px; font-weight: 700; }
+  .stat .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    padding: 16px 28px; position: sticky; top: 0; background: var(--bg);
+    border-bottom: 1px solid var(--border); z-index: 5;
+  }
+  input[type="search"], select {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 12px; border-radius: 8px; font-size: 14px;
+  }
+  input[type="search"] { flex: 1; min-width: 220px; }
+  .wrap { padding: 0 28px 60px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th {
+    position: sticky; top: 64px; background: var(--panel-2); cursor: pointer;
+    font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+    white-space: nowrap; user-select: none;
+  }
+  th:hover { color: var(--text); }
+  tbody tr:hover { background: var(--panel); }
+  .pkg-name { font-weight: 600; }
+  .badge {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .b-ok { color: var(--ok); background: var(--ok-bg); }
+  .b-no { color: var(--no); background: var(--no-bg); }
+  .b-rev { color: var(--rev); background: var(--rev-bg); }
+  .b-manual { color: var(--manual); background: var(--manual-bg); }
+  .motivo { color: var(--muted); max-width: 320px; }
+  .auto-note { color: var(--no); font-size: 12px; margin-top: 3px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .muted { color: var(--muted); }
+  .deps { font-size: 12px; color: var(--muted); }
+  .drop {
+    margin: 60px auto; max-width: 520px; text-align: center; padding: 48px 24px;
+    border: 2px dashed var(--border); border-radius: 16px; background: var(--panel);
+  }
+  .drop.drag { border-color: var(--accent); background: var(--panel-2); }
+  .drop h2 { margin: 0 0 8px; }
+  .btn {
+    display: inline-block; margin-top: 14px; padding: 10px 18px; border-radius: 8px;
+    background: var(--accent); color: #05202e; font-weight: 700; cursor: pointer; border: none;
+  }
+  .hidden { display: none !important; }
+  .count { color: var(--muted); font-size: 13px; }
+  footer { padding: 20px 28px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<!-- The generator (pyscan report) replaces __REPORT_DATA__ with the JSON. -->
+<script id="report-data" type="application/json">__REPORT_DATA__</script>
+
+<div id="app"></div>
+
+<div id="loader" class="drop hidden">
+  <h2>Reporte de paquetes PyPI</h2>
+  <p class="muted">Arrastra aquí tu <code>consolidated_report.json</code> o selecciónalo.</p>
+  <input id="file" type="file" accept="application/json,.json" class="hidden">
+  <button class="btn" onclick="document.getElementById('file').click()">Seleccionar archivo</button>
+</div>
+
+<script>
+"use strict";
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function shortDate(s) {
+  if (!s) return "";
+  return String(s).split("T")[0];
+}
+function depNames(list) {
+  if (!Array.isArray(list)) return "";
+  return list.map(function (d) {
+    if (d && typeof d === "object") return d.name + (d.version ? "==" + d.version : "");
+    return String(d);
+  }).join(", ");
+}
+
+var STATE = { data: null, sortKey: "package", sortDir: 1, query: "", filter: "all" };
+
+function approvalBadge(pkg) {
+  var v = (pkg.aprobada || "").toLowerCase();
+  if (v === "sí" || v === "si" || v === "yes" || v === "true") return '<span class="badge b-ok">Aprobada</span>';
+  if (v === "no") return '<span class="badge b-no">Rechazada</span>';
+  return '<span class="badge b-rev">En verificación</span>';
+}
+
+function render() {
+  var data = STATE.data;
+  var pkgs = (data.packages || []).slice();
+  var summary = data.summary || {};
+
+  var approved = pkgs.filter(function (p) { return (p.aprobada || "").toLowerCase().startsWith("s"); }).length;
+  var rejected = pkgs.filter(function (p) { return (p.aprobada || "").toLowerCase() === "no"; }).length;
+  var manual = pkgs.filter(function (p) { return p.aprobacion_manual; }).length;
+  var vulns = (data.vulnerabilities || []).length;
+
+  // Filter
+  var q = STATE.query.toLowerCase();
+  var filtered = pkgs.filter(function (p) {
+    if (STATE.filter === "approved" && !(p.aprobada || "").toLowerCase().startsWith("s")) return false;
+    if (STATE.filter === "rejected" && (p.aprobada || "").toLowerCase() !== "no") return false;
+    if (STATE.filter === "manual" && !p.aprobacion_manual) return false;
+    if (STATE.filter === "review" && !((p.aprobada || "").toLowerCase().indexOf("verific") >= 0)) return false;
+    if (!q) return true;
+    return (String(p.package) + " " + String(p.version) + " " + String(p.license) + " " +
+            String(p.motivo_rechazo)).toLowerCase().indexOf(q) >= 0;
+  });
+
+  // Sort
+  var k = STATE.sortKey, dir = STATE.sortDir;
+  filtered.sort(function (a, b) {
+    var va = String(a[k] == null ? "" : a[k]).toLowerCase();
+    var vb = String(b[k] == null ? "" : b[k]).toLowerCase();
+    return va < vb ? -dir : va > vb ? dir : 0;
+  });
+
+  var cols = [
+    ["package", "Nombre"], ["version", "Versión"], ["aprobada", "Aprobada"],
+    ["aprobacion_manual", "Manual"], ["motivo_rechazo", "Motivo"],
+    ["license", "Licencia"], ["is_maintained", "Mantenido"],
+    ["upload_time", "Publicación"], ["last_commit_date", "Últ. commit"],
+    ["dependencias_rechazadas", "Deps rechazadas"], ["url", "URL"]
+  ];
+
+  var html = "";
+  html += '<header>';
+  html += '<h1>Reporte de paquetes PyPI</h1>';
+  html += '<div class="sub">Última actualización: ' + esc(shortDate(data.timestamp)) +
+          ' · Política: ' + esc(summary.policy_applied || "—") + '</div>';
+  html += '<div class="stats">' +
+    stat(pkgs.length, "Paquetes") +
+    stat(approved, "Aprobados") +
+    stat(rejected, "Rechazados") +
+    stat(manual, "Aprob. manual") +
+    stat(vulns, "Vulnerabilidades") +
+  '</div></header>';
+
+  html += '<div class="toolbar">' +
+    '<input id="q" type="search" placeholder="Buscar por nombre, licencia, motivo..." value="' + esc(STATE.query) + '">' +
+    '<select id="filter">' +
+      opt("all", "Todos", STATE.filter) +
+      opt("approved", "Aprobados", STATE.filter) +
+      opt("rejected", "Rechazados", STATE.filter) +
+      opt("review", "En verificación", STATE.filter) +
+      opt("manual", "Aprob. manual", STATE.filter) +
+    '</select>' +
+    '<span class="count">' + filtered.length + ' de ' + pkgs.length + '</span>' +
+  '</div>';
+
+  html += '<div class="wrap"><table><thead><tr>';
+  cols.forEach(function (c) {
+    var arrow = STATE.sortKey === c[0] ? (STATE.sortDir === 1 ? " ▲" : " ▼") : "";
+    html += '<th data-k="' + c[0] + '">' + esc(c[1]) + arrow + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  filtered.forEach(function (p) {
+    var url = p.url || p.project_url || p.home_page ||
+      (p.package ? "https://pypi.org/project/" + p.package : "");
+    var motivo = '<div class="motivo">' + esc(p.motivo_rechazo || "") + '</div>';
+    if (p.aprobacion_manual && p.aprobada_automatica &&
+        String(p.aprobada_automatica).toLowerCase() === "no") {
+      motivo += '<div class="auto-note">⚠ Análisis automático: rechazado — ' +
+        esc(p.motivo_automatico || "") + '</div>';
+    }
+    var manualBadge = p.aprobacion_manual
+      ? '<span class="badge b-manual" title="' + esc(p.aprobada_manual_por || "") + ' · ' +
+        esc(p.aprobada_manual_fecha || "") + '">Manual</span>'
+      : '<span class="muted">—</span>';
+    var rejDeps = depNames(p.dependencias_rechazadas);
+
+    html += '<tr>' +
+      '<td class="pkg-name">' + esc(p.package) + '</td>' +
+      '<td>' + esc(p.version) + '</td>' +
+      '<td>' + approvalBadge(p) + '</td>' +
+      '<td>' + manualBadge + '</td>' +
+      '<td>' + motivo + '</td>' +
+      '<td>' + esc(p.license || "—") + '</td>' +
+      '<td>' + (p.is_maintained ? "Sí" : '<span class="muted">No</span>') + '</td>' +
+      '<td>' + esc(shortDate(p.upload_time)) + '</td>' +
+      '<td>' + esc(shortDate(p.last_commit_date)) + '</td>' +
+      '<td class="deps">' + esc(rejDeps || "—") + '</td>' +
+      '<td>' + (url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">link</a>' : "—") + '</td>' +
+    '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  html += '<footer>Generado por PyPI Scanner · fuente única: consolidated_report.json</footer>';
+
+  document.getElementById("app").innerHTML = html;
+  document.getElementById("loader").classList.add("hidden");
+  wire();
+}
+
+function stat(num, lbl) {
+  return '<div class="stat"><div class="num">' + num + '</div><div class="lbl">' + esc(lbl) + '</div></div>';
+}
+function opt(val, lbl, cur) {
+  return '<option value="' + val + '"' + (cur === val ? " selected" : "") + '>' + esc(lbl) + '</option>';
+}
+
+function wire() {
+  var q = document.getElementById("q");
+  if (q) q.oninput = function () { STATE.query = this.value; var pos = this.selectionStart; render();
+    var nq = document.getElementById("q"); if (nq) { nq.focus(); nq.selectionStart = nq.selectionEnd = pos; } };
+  var f = document.getElementById("filter");
+  if (f) f.onchange = function () { STATE.filter = this.value; render(); };
+  document.querySelectorAll("th[data-k]").forEach(function (th) {
+    th.onclick = function () {
+      var k = th.getAttribute("data-k");
+      if (STATE.sortKey === k) STATE.sortDir *= -1; else { STATE.sortKey = k; STATE.sortDir = 1; }
+      render();
+    };
+  });
+}
+
+function loadData(obj) {
+  if (!obj || !Array.isArray(obj.packages)) {
+    alert("El archivo no parece un consolidated_report.json válido (falta 'packages').");
+    return;
+  }
+  STATE.data = obj;
+  render();
+}
+
+function showLoader() {
+  document.getElementById("loader").classList.remove("hidden");
+  var fileInput = document.getElementById("file");
+  fileInput.onchange = function () {
+    var file = this.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try { loadData(JSON.parse(reader.result)); }
+      catch (e) { alert("JSON inválido: " + e.message); }
+    };
+    reader.readAsText(file);
+  };
+  var drop = document.getElementById("loader");
+  ["dragover", "dragenter"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("drag"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("drag"); });
+  });
+  drop.addEventListener("drop", function (e) {
+    var file = e.dataTransfer.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try { loadData(JSON.parse(reader.result)); }
+      catch (err) { alert("JSON inválido: " + err.message); }
+    };
+    reader.readAsText(file);
+  });
+}
+
+(function init() {
+  var raw = (document.getElementById("report-data").textContent || "").trim();
+  if (raw && raw !== "__REPORT_DATA__") {
+    try { loadData(JSON.parse(raw)); return; }
+    catch (e) { /* fall through to loader */ }
+  }
+  // No embedded data: try fetching a sibling file, else show the picker.
+  if (location.protocol !== "file:") {
+    fetch("consolidated_report.json")
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(loadData)
+      .catch(showLoader);
+  } else {
+    showLoader();
+  }
+})();
+</script>
+</body>
+</html>

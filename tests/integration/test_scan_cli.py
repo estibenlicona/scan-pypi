@@ -58,7 +58,6 @@ class TestBuildParser:
         assert args.file is None
         assert args.markdown is False
         assert args.markdown_only is False
-        assert args.xlsx is False
         assert args.report == "consolidated_report.json"
 
 

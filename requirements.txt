@@ -2,8 +2,8 @@
 requests>=2.31.0
 python-dotenv>=1.0.0
 
-# Dependency resolution
-pipgrip>=0.10.0
+# Dependency resolver (binary bundled into the executable)
+uv>=0.4.0
 
 # Async HTTP client
 aiohttp>=3.8.0

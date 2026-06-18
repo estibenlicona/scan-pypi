@@ -1,72 +1,107 @@
 """
-Unified entry point for PyInstaller executable.
+Unified entry point for the PyInstaller executable.
 
-Dispatches to run or report based on the first argument.
+Exposes the ``run`` and ``report`` subcommands using argparse subparsers,
+reusing the same argument definitions and command logic as the source CLI.
 Usage:
     pyscan run requests flask
+    pyscan run -f requirements.scan.txt
     pyscan report
 """
 
 from __future__ import annotations
-import sys
+import argparse
 import os
+import sys
 
 
 def _set_working_directory() -> None:
-    """Ensure CWD is the directory containing the executable."""
+    """Ensure CWD is the directory containing the executable (frozen mode)."""
     if getattr(sys, "frozen", False):
-        # Running as PyInstaller bundle
-        exe_dir = os.path.dirname(sys.executable)
-        os.chdir(exe_dir)
+        os.chdir(os.path.dirname(sys.executable))
+
+
+def _report_command(args: argparse.Namespace) -> None:
+    """Generate the friendly HTML viewer from the consolidated JSON report."""
+    from src.interface.cli.html_report import main as html_main
+    html_main(report_path=args.report, output_path=args.output)
+
+
+def _approve_command(args: argparse.Namespace) -> None:
+    """Grant manual approval to one or more packages in the master report."""
+    from src.interface.cli.approve import main as approve_main
+    approve_main(
+        specs=args.packages,
+        report_path=args.report,
+        motivo=args.motivo,
+        por=args.por,
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the top-level parser with ``run``, ``approve`` and ``report``."""
+    from src.interface.cli.main import add_scan_arguments, run_command
+
+    parser = argparse.ArgumentParser(
+        prog="pyscan",
+        description="PyPI Scanner — analiza dependencias, vulnerabilidades y licencias.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Ejemplos:\n"
+            "  pyscan run requests==2.28.0\n"
+            "  pyscan run -f requirements.scan.txt\n"
+            "  pyscan approve requests==2.28.0 --motivo \"Revisado\" --por ana\n"
+            "  pyscan report\n"
+        ),
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    run_parser = subparsers.add_parser("run", help="Escanear paquetes PyPI")
+    add_scan_arguments(run_parser)
+    run_parser.set_defaults(func=run_command)
+
+    approve_parser = subparsers.add_parser(
+        "approve", help="Aprobar manualmente paquetes en el reporte maestro"
+    )
+    approve_parser.add_argument(
+        "packages", nargs="+", metavar="paquete",
+        help="Paquetes a aprobar (ej: requests==2.28.0)",
+    )
+    approve_parser.add_argument(
+        "--motivo", type=str, default=None,
+        help="Motivo de la aprobación manual",
+    )
+    approve_parser.add_argument(
+        "--por", type=str, default=None,
+        help="Responsable de la aprobación",
+    )
+    approve_parser.add_argument(
+        "--report", type=str, default="consolidated_report.json",
+        help="Ruta al JSON maestro",
+    )
+    approve_parser.set_defaults(func=_approve_command)
+
+    report_parser = subparsers.add_parser(
+        "report", help="Generar visor HTML del reporte consolidado"
+    )
+    report_parser.add_argument(
+        "--report", type=str, default="consolidated_report.json",
+        help="Ruta al JSON maestro",
+    )
+    report_parser.add_argument(
+        "--output", type=str, default="report.html",
+        help="Ruta del HTML a generar",
+    )
+    report_parser.set_defaults(func=_report_command)
+
+    return parser
 
 
 def main() -> None:
-    """Unified CLI dispatcher."""
+    """Unified CLI dispatcher for the packaged executable."""
     _set_working_directory()
-
-    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
-        _print_help()
-        sys.exit(0)
-
-    command = sys.argv[1]
-    # Remove the subcommand from argv so each module sees its own args
-    sys.argv = [sys.argv[0]] + sys.argv[2:]
-
-    if command == "run":
-        from src.interface.cli.main import main as run_main
-        run_main()
-    elif command == "report":
-        from src.interface.cli.consolidate import main as report_main
-        report_main()
-    else:
-        print(f"[ERROR] Comando desconocido: '{command}'", file=sys.stderr)
-        _print_help()
-        sys.exit(1)
-
-
-def _print_help() -> None:
-    """Print usage information."""
-    print(
-        "PyPI Scanner — Ejecutable standalone\n"
-        "\n"
-        "Uso:\n"
-        "  pyscan <comando> [opciones]\n"
-        "\n"
-        "Comandos disponibles:\n"
-        "  run           Escanear paquetes PyPI\n"
-        "  report        Consolidar reportes históricos en XLSX\n"
-        "\n"
-        "Ejemplos:\n"
-        "  pyscan run requests==2.28.0\n"
-        "  pyscan run -f requirements.scan.txt\n"
-        "  pyscan run requests --markdown\n"
-        "  pyscan report\n"
-        "\n"
-        "Configuración:\n"
-        "  Coloca un archivo .env junto al ejecutable para configurar\n"
-        "  las reglas de negocio, caché, y tokens de API.\n"
-        "  Ver .env.example para referencia.\n"
-    )
+    args = _build_parser().parse_args()
+    args.func(args)
 
 
 if __name__ == "__main__":

@@ -14,8 +14,8 @@ from src.domain.ports import (
     CachePort, LoggerPort, ClockPort, ReportSinkPort
 )
 from src.infrastructure.adapters import (
-    LoggerAdapter, OSVAdapter, PyPIClientAdapter, CacheDiskAdapter, 
-    PipGripAdapter, SystemClockAdapter, FileReportSinkAdapter
+    LoggerAdapter, OSVAdapter, PyPIClientAdapter, CacheDiskAdapter,
+    SystemClockAdapter, FileReportSinkAdapter
 )
 from src.infrastructure.adapters.uv_dependency_resolver_adapter import UvDepResolverAdapter
 from src.infrastructure.config.settings import get_settings, Settings
@@ -95,32 +95,14 @@ class DependencyContainer:
     def dependency_resolver(self) -> DependencyResolverPort:
         """Get or create dependency resolver adapter."""
         if self._dependency_resolver is None:
-            # Choose resolver based on configuration
-            resolver_type = self.settings.dependency_resolver_type.lower()
-            
-            if resolver_type == "uv":
-                self.logger.info("Using UV dependency resolver (fast mode)")
-                self._dependency_resolver = UvDepResolverAdapter(
-                    logger=self.logger,
-                    cache=self.cache,
-                    cache_dir=os.path.join(self.settings.cache.directory, "uv_cache"),
-                    api_settings=self.settings.api,
-                )
-            elif resolver_type == "pipgrip":
-                self.logger.info("Using PipGrip dependency resolver (compatible mode)")
-                self._dependency_resolver = PipGripAdapter(
-                    logger=self.logger,
-                    cache=self.cache
-                )
-            else:
-                self.logger.warning(
-                    f"Unknown resolver type '{resolver_type}', defaulting to pipgrip"
-                )
-                self._dependency_resolver = PipGripAdapter(
-                    logger=self.logger,
-                    cache=self.cache
-                )
-        
+            self.logger.info("Using UV dependency resolver (fast mode)")
+            self._dependency_resolver = UvDepResolverAdapter(
+                logger=self.logger,
+                cache=self.cache,
+                cache_dir=os.path.join(self.settings.cache.directory, "uv_cache"),
+                api_settings=self.settings.api,
+            )
+
         return self._dependency_resolver
     
     @property
