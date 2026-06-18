@@ -35,7 +35,6 @@ coverage.xml
 
 # === Build / distribución (PyInstaller) ===
 build/
-dist/
 
 # === Reportes e historiales ===
 reports_history/
