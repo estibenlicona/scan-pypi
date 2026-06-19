@@ -103,6 +103,7 @@ Todas las variables son opcionales y tienen valores por defecto. Copia
 | `GITHUB_TOKEN` | — | PAT de GitHub; sube el rate limit de 60 a 5000 req/h |
 | `PRIVATE_INDEX_URL` | — | URL de un feed privado de PyPI (ej. Azure Artifacts) |
 | `PRIVATE_INDEX_PAT` | — | Token para autenticar contra el feed privado |
+| `UV_ALLOW_PRERELEASE` | `false` | Si es `true`, usa `uv pip compile --prerelease=allow` |
 | `MAINTAINED_YEARS` | `2` | Años desde la última publicación para considerar un paquete "mantenido" |
 | `BLOCKED_LICENSES` | — | Licencias prohibidas, separadas por comas (ej. `GPL,AGPL`) |
 | `CACHE_ENABLED` | `true` | Habilita el caché en disco |

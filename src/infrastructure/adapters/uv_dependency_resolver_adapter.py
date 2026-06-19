@@ -250,6 +250,9 @@ class UvDepResolverAdapter(DependencyResolverPort):
             "--quiet",
         ]
 
+        if self.api_settings.uv_allow_prerelease:
+            cmd.append("--prerelease=allow")
+
         # Add private index when configured
         if self.api_settings.private_index_url and self.api_settings.private_index_pat:
             url = self.api_settings.private_index_url.rstrip("/")

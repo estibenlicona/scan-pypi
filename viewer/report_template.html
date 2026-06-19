@@ -85,6 +85,17 @@
     display: inline-block; margin-top: 14px; padding: 10px 18px; border-radius: 8px;
     background: var(--accent); color: #05202e; font-weight: 700; cursor: pointer; border: none;
   }
+  .btn-sec {
+    display: inline-block; padding: 8px 12px; border-radius: 8px;
+    background: var(--panel); color: var(--text); font-weight: 600;
+    cursor: pointer; border: 1px solid var(--border);
+  }
+  .btn-sec:hover { border-color: var(--accent); }
+  .file-pill {
+    padding: 6px 10px; border-radius: 999px; background: var(--panel);
+    border: 1px solid var(--border); color: var(--muted); font-size: 12px;
+    max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .hidden { display: none !important; }
   .count { color: var(--muted); font-size: 13px; }
   footer { padding: 20px 28px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); }
@@ -93,6 +104,7 @@
 <body>
 <!-- The generator (pyscan report) replaces __REPORT_DATA__ with the JSON. -->
 <script id="report-data" type="application/json">__REPORT_DATA__</script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 
 <div id="app"></div>
 
@@ -123,7 +135,241 @@ function depNames(list) {
   }).join(", ");
 }
 
-var STATE = { data: null, sortKey: "package", sortDir: 1, query: "", filter: "all" };
+var STATE = {
+  data: null,
+  sortKey: "package",
+  sortDir: 1,
+  query: "",
+  filter: "all",
+  requirements: [],
+  requirementsFileName: ""
+};
+
+function normalizeName(name) {
+  return String(name || "").trim().toLowerCase().replace(/[-_.]+/g, "-");
+}
+
+function parseRequirementsText(content) {
+  var lines = String(content || "").split(/\r?\n/);
+  var out = [];
+  lines.forEach(function (line) {
+    var clean = line.split("#")[0].trim();
+    if (!clean) return;
+    var m = clean.match(/^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*==\s*([^\s;]+)/);
+    if (!m) return;
+    out.push({ package: m[1].trim(), version: m[2].trim() });
+  });
+  return out;
+}
+
+function splitVersion(version) {
+  return String(version || "").split(/[.\-_+]/).map(function (part) {
+    var n = Number(part);
+    return Number.isNaN(n) ? part.toLowerCase() : n;
+  });
+}
+
+function compareVersions(a, b) {
+  var pa = splitVersion(a);
+  var pb = splitVersion(b);
+  var maxLen = Math.max(pa.length, pb.length);
+  for (var i = 0; i < maxLen; i += 1) {
+    var va = pa[i];
+    var vb = pb[i];
+    if (va === undefined && vb === undefined) return 0;
+    if (va === undefined) return -1;
+    if (vb === undefined) return 1;
+    if (typeof va === "number" && typeof vb === "number") {
+      if (va !== vb) return va > vb ? 1 : -1;
+      continue;
+    }
+    var sa = String(va);
+    var sb = String(vb);
+    if (sa !== sb) return sa > sb ? 1 : -1;
+  }
+  return 0;
+}
+
+function toIsoDate(value) {
+  if (!value) return "";
+  var date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toISOString().slice(0, 10);
+}
+
+function approvedText(value) {
+  var normalized = String(value == null ? "" : value).trim().toLowerCase();
+  return (value === true || normalized === "si" || normalized === "sí" ||
+    normalized === "yes" || normalized === "true" ||
+    normalized === "aprobada" || normalized === "aprobado") ? "SI" : "NO";
+}
+
+async function downloadXlsx(fileName, columns, rows) {
+  if (!window.ExcelJS) {
+    alert("No se pudo cargar la libreria para generar XLSX.");
+    return;
+  }
+
+  var workbook = new window.ExcelJS.Workbook();
+  var worksheet = workbook.addWorksheet("Reporte");
+  worksheet.columns = columns.map(function (column) {
+    return { key: column.key, header: column.header, width: 20 };
+  });
+
+  var headerRow = worksheet.getRow(1);
+  headerRow.height = 34;
+  headerRow.eachCell(function (cell) {
+    cell.font = { bold: true, color: { argb: "FF0F172A" } };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFBFDBFE" }
+    };
+    cell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
+    cell.border = {
+      top: { style: "thin", color: { argb: "FF94A3B8" } },
+      left: { style: "thin", color: { argb: "FF94A3B8" } },
+      bottom: { style: "thin", color: { argb: "FF94A3B8" } },
+      right: { style: "thin", color: { argb: "FF94A3B8" } }
+    };
+  });
+
+  rows.forEach(function (row) {
+    worksheet.addRow(row);
+  });
+
+  var approvedColumn = columns.find(function (column) {
+    return column.key === "aprobada";
+  });
+  if (approvedColumn) {
+    var approvedColIdx = columns.findIndex(function (column) {
+      return column.key === "aprobada";
+    }) + 1;
+    for (var i = 2; i <= worksheet.rowCount; i += 1) {
+      var c = worksheet.getRow(i).getCell(approvedColIdx);
+      var isYes = String(c.value || "").trim().toUpperCase() === "SI";
+      c.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: isYes ? "FFDCFCE7" : "FFFEE2E2" }
+      };
+      c.font = { color: { argb: "FF111827" }, bold: true };
+      c.alignment = { vertical: "middle", horizontal: "center" };
+    }
+  }
+
+  columns.forEach(function (column, colIdx) {
+    var maxLen = String(column.header || "").replace(/\n/g, "").length;
+    for (var rowIdx = 2; rowIdx <= worksheet.rowCount; rowIdx += 1) {
+      var v = worksheet.getRow(rowIdx).getCell(colIdx + 1).value;
+      var text = String(v == null ? "" : v);
+      if (text.length > maxLen) maxLen = text.length;
+      worksheet.getRow(rowIdx).getCell(colIdx + 1).alignment = {
+        vertical: "top",
+        wrapText: true
+      };
+    }
+    worksheet.getColumn(colIdx + 1).width = Math.min(70, Math.max(12, maxLen + 2));
+  });
+
+  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+  var buffer = await workbook.xlsx.writeBuffer();
+  var blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+}
+
+function buildValidationRows(data, requirements) {
+  var allPackages = []
+    .concat(Array.isArray(data.packages) ? data.packages : [])
+    .concat(Array.isArray(data.filtered_packages) ? data.filtered_packages : []);
+
+  var byPackage = {};
+  var byPackageVersion = {};
+
+  allPackages.forEach(function (pkg) {
+    if (!pkg || !pkg.package || !pkg.version) return;
+    var keyPkg = normalizeName(pkg.package);
+    var keyPkgVersion = keyPkg + "@@" + String(pkg.version).trim();
+    if (!byPackage[keyPkg]) byPackage[keyPkg] = [];
+    byPackage[keyPkg].push(pkg);
+    if (!byPackageVersion[keyPkgVersion]) byPackageVersion[keyPkgVersion] = [];
+    byPackageVersion[keyPkgVersion].push(pkg);
+  });
+
+  return requirements.map(function (req) {
+    var pkgNorm = normalizeName(req.package);
+    var version = req.version;
+    var items = byPackage[pkgNorm] || [];
+    var exact = (byPackageVersion[pkgNorm + "@@" + version] || [])[0] || null;
+    var representative = exact || items[0] || null;
+    var approvedVersions = Array.from(new Set(
+      items.filter(function (p) { return approvedText(p.aprobada) === "SI"; })
+        .map(function (p) { return String(p.version).trim(); })
+    )).sort(compareVersions);
+    var approved = exact ? approvedText(exact.aprobada) : "NO";
+
+    return {
+      package_requerido: req.package,
+      version_requerida: version,
+      aprobada: approved,
+      versiones_aprobadas_disponibles: approvedVersions.join(" | "),
+      version_en_reporte: representative ? (representative.version || "") : "",
+      latest_version_reporte: representative ? (representative.latest_version || "") : "",
+      licencia: representative ? (representative.license || "") : "",
+      motivo_rechazo: (exact && exact.motivo_rechazo) ||
+        (representative && representative.motivo_rechazo) || "",
+      resumen: representative ? (representative.summary || "") : ""
+    };
+  });
+}
+
+function buildConsolidatedRows(data) {
+  var packages = Array.isArray(data.packages) ? data.packages : [];
+  var unique = {};
+  var out = [];
+
+  packages.forEach(function (pkg) {
+    var name = String(pkg && pkg.package || "").trim();
+    var version = String(pkg && pkg.version || "").trim();
+    if (!name || !version) return;
+    var key = name.toLowerCase() + "@@" + version;
+    if (unique[key]) return;
+    unique[key] = true;
+
+    var depsDirectas = Array.isArray(pkg.dependencias_directas)
+      ? pkg.dependencias_directas.map(function (d) { return d && d.name; }).filter(Boolean)
+      : [];
+    var depsFallback = Array.isArray(pkg.dependencies)
+      ? pkg.dependencies.map(function (d) { return d && d.name; }).filter(Boolean)
+      : [];
+    var deps = Array.from(new Set(depsDirectas.concat(depsFallback)));
+
+    out.push({
+      nombre: name,
+      aprobada: approvedText(pkg.aprobada),
+      version: version,
+      fecha_publicacion: toIsoDate(pkg.upload_time),
+      ult_fecha_version: toIsoDate(pkg.latest_upload_time),
+      ult_commit_github: toIsoDate(pkg.last_commit_date),
+      licencia: pkg.license || "",
+      url: pkg.home_page || pkg.github_url ||
+        ("https://pypi.org/project/" + encodeURIComponent(name) + "/"),
+      dependencias: deps.length ? deps.join(" | ") : "N/A",
+      descripcion: pkg.summary || ""
+    });
+  });
+
+  return out;
+}
 
 function approvalBadge(pkg) {
   var v = (pkg.aprobada || "").toLowerCase();
@@ -192,6 +438,13 @@ function render() {
       opt("review", "En verificación", STATE.filter) +
       opt("manual", "Aprob. manual", STATE.filter) +
     '</select>' +
+    '<input id="req-file" type="file" accept=".txt,text/plain" class="hidden">' +
+    '<button id="btn-load-req" class="btn-sec" type="button">Cargar requirements.txt</button>' +
+    '<button id="btn-export-validation" class="btn-sec" type="button">Descargar XLSX validación</button>' +
+    '<button id="btn-export-summary" class="btn-sec" type="button">Descargar XLSX resumen</button>' +
+    '<span class="file-pill" title="' + esc(STATE.requirementsFileName || "Sin archivo cargado") + '">' +
+      esc(STATE.requirementsFileName || "Sin requirements cargado") +
+    '</span>' +
     '<span class="count">' + filtered.length + ' de ' + pkgs.length + '</span>' +
   '</div>';
 
@@ -253,6 +506,71 @@ function wire() {
     var nq = document.getElementById("q"); if (nq) { nq.focus(); nq.selectionStart = nq.selectionEnd = pos; } };
   var f = document.getElementById("filter");
   if (f) f.onchange = function () { STATE.filter = this.value; render(); };
+  var reqInput = document.getElementById("req-file");
+  var btnLoadReq = document.getElementById("btn-load-req");
+  if (btnLoadReq && reqInput) {
+    btnLoadReq.onclick = function () { reqInput.click(); };
+    reqInput.onchange = function () {
+      var file = this.files && this.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        STATE.requirements = parseRequirementsText(reader.result);
+        STATE.requirementsFileName = file.name || "requirements.txt";
+        if (!STATE.requirements.length) {
+          alert("No se detectaron dependencias con formato package==version.");
+        }
+        render();
+      };
+      reader.readAsText(file);
+    };
+  }
+
+  var btnValidation = document.getElementById("btn-export-validation");
+  if (btnValidation) {
+    btnValidation.onclick = function () {
+      if (!STATE.data) return;
+      if (!STATE.requirements.length) {
+        alert("Primero carga el archivo requirements.txt.");
+        return;
+      }
+      var rows = buildValidationRows(STATE.data, STATE.requirements);
+      var columns = [
+        { key: "package_requerido", header: "Paquete\nRequerido" },
+        { key: "version_requerida", header: "Version\nRequerida" },
+        { key: "aprobada", header: "Aprobada" },
+        { key: "versiones_aprobadas_disponibles", header: "Versiones\nAprobadas\nDisponibles" },
+        { key: "version_en_reporte", header: "Version\nEn Reporte" },
+        { key: "latest_version_reporte", header: "Ultima Version\nReporte" },
+        { key: "licencia", header: "Licencia" },
+        { key: "motivo_rechazo", header: "Motivo\nRechazo" },
+        { key: "resumen", header: "Resumen" }
+      ];
+      downloadXlsx("validacion_dependencias.xlsx", columns, rows);
+    };
+  }
+
+  var btnSummary = document.getElementById("btn-export-summary");
+  if (btnSummary) {
+    btnSummary.onclick = function () {
+      if (!STATE.data) return;
+      var rows = buildConsolidatedRows(STATE.data);
+      var columns = [
+        { key: "nombre", header: "Nombre" },
+        { key: "aprobada", header: "Aprobada" },
+        { key: "version", header: "Version" },
+        { key: "fecha_publicacion", header: "Fecha de\nPublicacion" },
+        { key: "ult_fecha_version", header: "Ult. Fecha\nVersion" },
+        { key: "ult_commit_github", header: "Ult. Commit\nGitHub" },
+        { key: "licencia", header: "Licencia" },
+        { key: "url", header: "URL" },
+        { key: "dependencias", header: "Dependencias" },
+        { key: "descripcion", header: "Descripcion" }
+      ];
+      downloadXlsx("reporte_consolidado_resumen.xlsx", columns, rows);
+    };
+  }
+
   document.querySelectorAll("th[data-k]").forEach(function (th) {
     th.onclick = function () {
       var k = th.getAttribute("data-k");

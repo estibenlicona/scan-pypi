@@ -63,6 +63,7 @@ class APISettings:
     request_timeout: int = 10
     private_index_url: Optional[str] = None
     private_index_pat: Optional[str] = None
+    uv_allow_prerelease: bool = False
 
     @classmethod
     def from_env(cls) -> APISettings:
@@ -74,6 +75,9 @@ class APISettings:
             request_timeout=int(os.getenv("API_REQUEST_TIMEOUT", "10")),
             private_index_url=os.getenv("PRIVATE_INDEX_URL"),
             private_index_pat=os.getenv("PRIVATE_INDEX_PAT"),
+            uv_allow_prerelease=os.getenv(
+                "UV_ALLOW_PRERELEASE", "false"
+            ).strip().lower() in ("1", "true", "yes", "on"),
         )
 
 
